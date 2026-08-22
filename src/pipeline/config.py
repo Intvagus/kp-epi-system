@@ -1,0 +1,137 @@
+"""Run-level configuration: thresholds, period metadata, column maps.
+
+Adding a new monthly file that this repo hasn't seen before should only ever
+require a new entry in PERIOD_OVERRIDES (or, if the filename matches the
+pattern already, nothing at all) -- never a code change.
+"""
+import re
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Period:
+    period_id: str
+    period_type: str  # "monthly" | "cumulative_annual"
+    label: str
+
+
+# Exact-filename overrides. Used when the filename doesn't parse cleanly, or
+# to pin down a period that the regex heuristics below would get wrong.
+PERIOD_OVERRIDES = {
+    "Dec 2025 Coverage Analysis (0-11).xlsx": Period("2025-12", "monthly", "December 2025"),
+    "Jan to Dec 2025.xlsx": Period("2025-annual", "cumulative_annual", "Jan-Dec 2025 (cumulative)"),
+}
+
+_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_MONTH_YEAR_RE = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b", re.I
+)
+_JAN_TO_DEC_RE = re.compile(r"jan\s+to\s+dec\s+(\d{4})", re.I)
+
+
+def infer_period(filename: str) -> Period:
+    """Infer a Period from a raw filename. Raises with a clear message if it can't.
+
+    Recognises "<Month> <Year>..." -> monthly, and "Jan to Dec <Year>" -> cumulative_annual.
+    Anything else must be added to PERIOD_OVERRIDES by hand.
+    """
+    if filename in PERIOD_OVERRIDES:
+        return PERIOD_OVERRIDES[filename]
+
+    m = _JAN_TO_DEC_RE.search(filename)
+    if m:
+        year = m.group(1)
+        return Period(f"{year}-annual", "cumulative_annual", f"Jan-Dec {year} (cumulative)")
+
+    m = _MONTH_YEAR_RE.search(filename)
+    if m:
+        mon, year = m.group(1).lower(), m.group(2)
+        return Period(f"{year}-{_MONTHS[mon]:02d}", "monthly", f"{mon.title()} {year}")
+
+    raise ValueError(
+        f"Cannot infer reporting period from filename {filename!r}. "
+        f"Add an entry to PERIOD_OVERRIDES in src/pipeline/config.py, e.g.:\n"
+        f'  "{filename}": Period("2026-01", "monthly", "January 2026"),'
+    )
+
+
+# Thresholds — configurable, not hardcoded in dashboard/bulletin templates.
+COVERAGE_GOOD = 80       # >= this = good (green)
+COVERAGE_WARNING = 60    # >= this, < COVERAGE_GOOD = warning (amber); below = poor (red)
+DROPOUT_GOOD = 10        # <= this = good
+DROPOUT_WARNING = 20     # <= this, > DROPOUT_GOOD = warning; above = poor
+OUTLIER_PCT_THRESHOLD = 120  # UC-level antigen % above this is flagged as an outlier
+
+SHEET_NAMES = {
+    "district": "District ",
+    "tehsil": "Teshil ",
+    "uc_coverages": "UC Wise Analysis - Coverages",
+    "uc_difference": "UC Wise Analysis - Difference i",
+}
+
+PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # mislabeled row in the District sheet
+PROVINCE_TOTAL_NAME = "KP Province Total"
+
+JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
+
+# --- VPD surveillance (domain 2) ---
+# Case-level line lists, one workbook per reporting run (filename carries the week
+# range, e.g. "KP VPDs Line List Week 1-32,2026.xlsx"). Confirmed with the user:
+# age validity has no upper bound (adult contacts are legitimate for
+# measles-rubella surveillance) -- only a negative age is a data error.
+VPD_SHEET_NAMES = {
+    "msl": "MSL LINE-LIST",                  # measles-rubella
+    "diphtheria": "DIPHTHERIA LINE-LIST ",   # trailing space is real, matches the workbook
+    "nnt": "NNT_LineList",
+    "pertussis": "Pertusis line-list",
+}
+VPD_HEADER_ROW = 2  # 1-indexed; row 1 is a merged title, data starts row 3
+
+AGE_BUCKETS_MONTHS = [
+    (0, 8, "0-8m"),      # not yet due for MCV1
+    (9, 23, "9-23m"),
+    (24, 59, "24-59m"),
+    (60, None, "60m+"),  # no upper bound -- confirmed with user
+]
+
+# Case-insensitive canonicalisation of MSL 'Final classification' free text --
+# the source file has a confirmed casing duplicate ('Laboratory Confirmed
+# Measles' vs 'laboratory Confirmed Measles', 3795 vs 35 rows) that must not be
+# counted as two categories.
+MSL_CLASSIFICATION_CANONICAL = {
+    "discarded": "Discarded",
+    "laboratory confirmed measles": "Laboratory Confirmed Measles",
+    "clinically compatible measles": "Clinically Compatible Measles",
+    "pending classification": "Pending Classification",
+    "laboratory confirmed measles and rubella": "Laboratory Confirmed Measles and Rubella",
+    "double infection": "Double Infection",
+    "epidemiologically confirmed measles": "Epidemiologically Confirmed Measles",
+    "clinically compatible rubella": "Clinically Compatible Rubella",
+    "epidemiologically confirmed rubella": "Epidemiologically Confirmed Rubella",
+}
+
+DOSE_STATUS_LABELS = {0: "Zero dose", 1: "1 dose", 2: "2 doses"}
+DOSE_STATUS_UNKNOWN = "Unknown"
+DOSE_STATUS_MAX_PLAUSIBLE = 4  # a value above this (e.g. the '111' seen in the Diphtheria sheet) is a data error, not a real dose count
+
+_VPD_WEEK_RANGE_RE = re.compile(r"week\s+(\d+)\s*-\s*(\d+)\s*,\s*(\d{4})", re.I)
+
+
+def infer_vpd_period(filename: str) -> Period:
+    """VPD line lists are cumulative-to-date over a week range, e.g.
+    'KP VPDs Line List Week 1-32,2026.xlsx' -- a different period model from
+    the monthly/annual coverage files (see Period.period_type
+    'cumulative_weekly'). Add a new pattern here, not a hardcoded filename, if
+    a future export names the range differently."""
+    m = _VPD_WEEK_RANGE_RE.search(filename)
+    if m:
+        start_week, end_week, year = m.groups()
+        return Period(f"{year}-W{start_week}-{end_week}", "cumulative_weekly",
+                       f"Weeks {start_week}-{end_week}, {year}")
+    raise ValueError(
+        f"Cannot infer VPD reporting week range from filename {filename!r}. "
+        f"Expected a 'Week <start>-<end>,<year>' pattern in the filename."
+    )

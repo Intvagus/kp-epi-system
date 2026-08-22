@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KP EPI Dashboard</title>
+<style>
+  :root {
+    --navy: #1a3a7a;
+    --navy-dark: #12285a;
+    --navy-light: #e8edf9;
+    --good: #1e8e3e;
+    --good-bg: #e6f4ea;
+    --warning: #b06a00;
+    --warning-bg: #fff4e0;
+    --poor: #c5221f;
+    --poor-bg: #fce8e6;
+    --neutral: #5f6368;
+    --neutral-bg: #f1f3f4;
+    --border: #dadce0;
+    --bg: #f5f6f8;
+    --card-bg: #ffffff;
+    --text: #1b1f27;
+    --text-dim: #5f6368;
+    --measles: #1a5fb4;
+    --diphtheria: #7d3c98;
+    --pertussis: #1e8e3e;
+    --nnt: #d97706;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  header.app-header {
+    background: var(--navy); color: #fff; padding: 14px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  header.app-header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header.app-header .sub { font-size: 12px; opacity: 0.85; }
+  select.period-select {
+    background: #fff; border: none; border-radius: 4px; padding: 6px 10px; font-size: 13px; color: var(--navy);
+    font-weight: 600;
+  }
+  nav.tabs {
+    display: flex; background: var(--navy-dark); overflow-x: auto; -webkit-overflow-scrolling: touch;
+    position: sticky; top: 0; z-index: 20;
+  }
+  nav.tabs button {
+    background: transparent; border: none; color: #cdd6ee; padding: 12px 16px; font-size: 13px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent;
+  }
+  nav.tabs button.active { color: #fff; border-bottom-color: #fff; background: rgba(255,255,255,0.06); }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .grid { display: grid; gap: 12px; }
+  .kpi-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .kpi-card {
+    background: var(--card-bg); border-radius: 8px; padding: 12px 14px; border-left: 5px solid var(--neutral);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+  .kpi-card.rag-good { border-left-color: var(--good); }
+  .kpi-card.rag-warning { border-left-color: var(--warning); }
+  .kpi-card.rag-poor { border-left-color: var(--poor); }
+  .kpi-card .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
+  .kpi-card .value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .kpi-card .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .card {
+    background: var(--card-bg); border-radius: 8px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px 0; color: var(--navy); }
+  .card h3 { font-size: 13px; margin: 14px 0 8px 0; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
+  .two-col { grid-template-columns: 1fr 1fr; }
+  .three-col { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 760px) {
+    .two-col, .three-col { grid-template-columns: 1fr; }
+  }
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-wrap.tall { height: 360px; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--card-bg); }
+  th.sorted-asc::after { content: " \25B2"; font-size: 9px; }
+  th.sorted-desc::after { content: " \25BC"; font-size: 9px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: var(--navy-light); }
+  .pct-cell { font-weight: 600; }
+  .rag-good-text { color: var(--good); }
+  .rag-warning-text { color: var(--warning); }
+  .rag-poor-text { color: var(--poor); }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10.5px; font-weight: 600; margin-right: 3px; }
+  .badge.good { background: var(--good-bg); color: var(--good); }
+  .badge.warning { background: var(--warning-bg); color: var(--warning); }
+  .badge.poor { background: var(--poor-bg); color: var(--poor); }
+  .badge.neutral { background: var(--neutral-bg); color: var(--neutral); }
+  .breadcrumb { font-size: 13px; margin-bottom: 10px; color: var(--text-dim); }
+  .breadcrumb a { color: var(--navy); cursor: pointer; text-decoration: none; font-weight: 600; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  input.search-box {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; width: 100%;
+    max-width: 280px; margin-bottom: 10px;
+  }
+  select.filter-select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; margin-right: 8px; margin-bottom: 10px; }
+  .controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12.5px; }
+  .pagination button {
+    border: 1px solid var(--border); background: #fff; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+  }
+  .pagination button:disabled { opacity: 0.4; cursor: default; }
+  .placeholder-card {
+    text-align: center; padding: 40px 20px; color: var(--text-dim); border: 2px dashed var(--border); border-radius: 8px;
+  }
+  .placeholder-card .icon { font-size: 32px; margin-bottom: 8px; }
+  .disease-tag { display: inline-block; width: 4px; height: 16px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  .expand-row td { background: #fafbfe; padding: 10px 14px; }
+  .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
+  .mini-grid div { padding: 4px 6px; background: #fff; border-radius: 4px; border: 1px solid var(--border); }
+  footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div>
+    <h1>KP EPI Dashboard</h1>
+    <div class="sub">Directorate General Health Services, Khyber Pakhtunkhwa &mdash; Expanded Programme on Immunization</div>
+  </div>
+  <div>
+    <label for="period-select" style="font-size:12px; margin-right:6px; opacity:0.85;">Coverage period:</label>
+    <select id="period-select" class="period-select"></select>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="coverage">Coverage</button>
+  <button data-tab="surveillance">Surveillance</button>
+  <button data-tab="supervision">Supervision</button>
+  <button data-tab="quality">Data Quality</button>
+</nav>
+
+<main>
+  <section id="tab-overview" class="tab-panel active"></section>
+  <section id="tab-coverage" class="tab-panel"></section>
+  <section id="tab-surveillance" class="tab-panel"></section>
+  <section id="tab-supervision" class="tab-panel"></section>
+  <section id="tab-quality" class="tab-panel"></section>
+</main>
+
+<footer>Generated by the EPI data pipeline. Coverage and bulletin figures are computed once by src/pipeline and never recalculated here.</footer>
+
+<script>/*__CHARTJS_SOURCE__*/</script>
+<script id="epi-data" type="application/json">/*__EPI_DATA_JSON__*/</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("epi-data").textContent);
+  var CFG = DATA.config;
+  var charts = {}; // name -> Chart instance, so we can destroy before re-render
+
+  function fmtPct(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : v.toFixed(1) + "%"; }
+  function fmtNum(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toLocaleString(); }
+  function ragClass(rag) { return rag ? "rag-" + rag : ""; }
+  function ragTextClass(rag) { return rag ? "rag-" + rag + "-text" : ""; }
+  function destroyChart(name) { if (charts[name]) { charts[name].destroy(); delete charts[name]; } }
+
+  function coverageRag(pct) {
+    if (pct === null || pct === undefined || isNaN(pct)) return null;
+    if (pct >= CFG.coverage_good) return "good";
+    if (pct >= CFG.coverage_warning) return "warning";
+    return "poor";
+  }
+  function dropoutRag(pct) {
+    if (pct === null || pct === undefined || isNaN(pct)) return null;
+    if (pct <= CFG.dropout_good) return "good";
+    if (pct <= CFG.dropout_warning) return "warning";
+    return "poor";
+  }
+
+  // ---------- Tabs ----------
+  var tabButtons = document.querySelectorAll("nav.tabs button");
+  tabButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      tabButtons.forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
+      var panel = document.getElementById("tab-" + btn.dataset.tab);
+      panel.classList.add("active");
+      renderTab(btn.dataset.tab);
+    });
+  });
+
+  // ---------- Period selector ----------
+  var periodSelect = document.getElementById("period-select");
+  DATA.periods.forEach(function (p) {
+    var opt = document.createElement("option");
+    opt.value = p.period_id; opt.textContent = p.label;
+    if (p.period_id === DATA.default_period_id) opt.selected = true;
+    periodSelect.appendChild(opt);
+  });
+  var state = {
+    periodId: DATA.default_period_id,
+    coverageLevel: "district", coverageDistrict: null, coverageTehsil: null,
+    coverageSort: { col: "fic_pct_reported", dir: "desc" }, coverageSearch: "",
+    qualityPage: 0, qualityFilterType: "", qualitySearch: "",
+  };
+  periodSelect.addEventListener("change", function () {
+    state.periodId = periodSelect.value;
+    renderTab("overview"); renderTab("coverage");
+  });
+
+  function byPeriod(rows, level) {
+    return rows.filter(function (r) { return r.period_id === state.periodId; });
+  }
+  function districtRows() { return byPeriod(DATA.coverage.district).filter(function (r) { return !r.is_province_total; }); }
+  function provinceRow() { return byPeriod(DATA.coverage.district).filter(function (r) { return r.is_province_total; })[0]; }
+
+  // ================= OVERVIEW =================
+  function renderOverview() {
+    var el = document.getElementById("tab-overview");
+    var prov = provinceRow();
+    if (!prov) { el.innerHTML = "<p>No coverage data for this period.</p>"; return; }
+
+    var kpis = [
+      ["BCG", prov.bcg_pct_reported, coverageRag(prov.bcg_pct_reported)],
+      ["Penta3", prov.penta3_pct_reported, coverageRag(prov.penta3_pct_reported)],
+      ["MR1", prov.mr1_pct_reported, coverageRag(prov.mr1_pct_reported)],
+      ["FIC", prov.fic_pct_reported, coverageRag(prov.fic_pct_reported)],
+      ["Dropout (P1→P3)", prov.dropout_pct_reported, dropoutRag(prov.dropout_pct_reported)],
+    ];
+    var kpiHtml = kpis.map(function (k) {
+      return '<div class="kpi-card rag-' + k[2] + '"><div class="label">' + k[0] + '</div>' +
+        '<div class="value ' + ragTextClass(k[2]) + '">' + fmtPct(k[1]) + '</div>' +
+        '<div class="sub">Province-wide</div></div>';
+    }).join("");
+
+    var dRows = districtRows().slice().sort(function (a, b) { return (b.fic_pct_reported || 0) - (a.fic_pct_reported || 0); });
+
+    el.innerHTML =
+      '<div class="grid kpi-row">' + kpiHtml + '</div>' +
+      '<div class="grid two-col" style="margin-top:14px;">' +
+        '<div class="card"><h2>Antigen cascade (province-wide)</h2><div class="chart-wrap"><canvas id="chart-cascade"></canvas></div></div>' +
+        '<div class="card"><h2>UC category breakdown</h2><div class="chart-wrap"><canvas id="chart-category"></canvas></div></div>' +
+      '</div>' +
+      '<div class="card"><h2>Districts ranked by FIC coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>';
+
+    destroyChart("cascade"); destroyChart("category"); destroyChart("ficRank");
+
+    var cascadeLabels = ["BCG", "Penta1", "Penta2", "Penta3", "MR1", "FIC"];
+    var cascadeVals = [prov.bcg_pct_reported, prov.penta1_pct_reported, prov.penta2_pct_reported,
+      prov.penta3_pct_reported, prov.mr1_pct_reported, prov.fic_pct_reported];
+    charts.cascade = new Chart(document.getElementById("chart-cascade"), {
+      type: "bar",
+      data: { labels: cascadeLabels, datasets: [{ label: "Coverage %", data: cascadeVals, backgroundColor: "#1a3a7a" }] },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+    });
+
+    var catTotals = [0, 0, 0, 0];
+    dRows.forEach(function (r) {
+      catTotals[0] += r.cat1_count || 0; catTotals[1] += r.cat2_count || 0;
+      catTotals[2] += r.cat3_count || 0; catTotals[3] += r.cat4_count || 0;
+    });
+    charts.category = new Chart(document.getElementById("chart-category"), {
+      type: "doughnut",
+      data: {
+        labels: ["Category 1 (good access, good use)", "Category 2 (good access, poor use)",
+          "Category 3 (poor access, good use)", "Category 4 (poor access, poor use)"],
+        datasets: [{ data: catTotals, backgroundColor: ["#1e8e3e", "#b06a00", "#5b7fd6", "#c5221f"] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } } }
+    });
+
+    charts.ficRank = new Chart(document.getElementById("chart-fic-rank"), {
+      type: "bar",
+      data: {
+        labels: dRows.map(function (r) { return r.district; }),
+        datasets: [{ label: "FIC %", data: dRows.map(function (r) { return r.fic_pct_reported; }),
+          backgroundColor: dRows.map(function (r) {
+            var c = coverageRag(r.fic_pct_reported);
+            return c === "good" ? "#1e8e3e" : c === "warning" ? "#b06a00" : "#c5221f";
+          }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+    });
+  }
+
+  // ================= COVERAGE =================
+  var COVERAGE_COLS = {
+    district: [["district", "District"], ["bcg_pct_reported", "BCG%"], ["penta1_pct_reported", "Penta1%"],
+      ["penta3_pct_reported", "Penta3%"], ["mr1_pct_reported", "MR1%"], ["fic_pct_reported", "FIC%"],
+      ["dropout_pct_reported", "Dropout%"], ["category", "Category"], ["total_ucs", "UCs"]],
+    tehsil: [["tehsil", "Tehsil"], ["bcg_pct_reported", "BCG%"], ["penta1_pct_reported", "Penta1%"],
+      ["penta3_pct_reported", "Penta3%"], ["mr1_pct_reported", "MR1%"], ["fic_pct_reported", "FIC%"],
+      ["dropout_pct_reported", "Dropout%"], ["category", "Category"], ["total_ucs", "UCs"]],
+    uc: [["uc_name", "Union Council"], ["bcg_pct", "BCG%"], ["penta1_pct", "Penta1%"],
+      ["penta3_pct", "Penta3%"], ["mr1_pct", "MR1%"], ["fic_pct", "FIC%"], ["dropout_pct", "Dropout%"],
+      ["category", "Category"], ["flags", "Flags"]],
+  };
+  var RAG_COLS = { bcg_pct: 1, bcg_pct_reported: 1, penta1_pct: 1, penta1_pct_reported: 1, penta2_pct_reported: 1,
+    penta3_pct: 1, penta3_pct_reported: 1, mr1_pct: 1, mr1_pct_reported: 1, fic_pct: 1, fic_pct_reported: 1,
+    dropout_pct: "dropout", dropout_pct_reported: "dropout" };
+
+  function coverageRows() {
+    if (state.coverageLevel === "district") return districtRows();
+    if (state.coverageLevel === "tehsil") {
+      return byPeriod(DATA.coverage.tehsil).filter(function (r) { return r.district === state.coverageDistrict; });
+    }
+    return byPeriod(DATA.coverage.uc).filter(function (r) {
+      return r.district === state.coverageDistrict && r.tehsil === state.coverageTehsil;
+    });
+  }
+
+  function flagBadges(r) {
+    var b = "";
+    if (r.is_zero_target) b += '<span class="badge neutral">no target</span>';
+    if (r.is_outlier) b += '<span class="badge warning">outlier</span>';
+    if (r.is_negative_dropout) b += '<span class="badge poor">neg. dropout</span>';
+    if (r.is_consistency_fail) b += '<span class="badge poor">' + r.consistency_fail_count + ' mismatch</span>';
+    return b || '<span class="badge good">clean</span>';
+  }
+
+  function renderBreadcrumb() {
+    var parts = ['<a data-nav="province">Province</a>'];
+    if (state.coverageDistrict) parts.push(' &rsaquo; <a data-nav="district">' + state.coverageDistrict + '</a>');
+    if (state.coverageTehsil) parts.push(' &rsaquo; ' + state.coverageTehsil);
+    return '<div class="breadcrumb">' + parts.join("") + '</div>';
+  }
+
+  function renderCoverage() {
+    var el = document.getElementById("tab-coverage");
+    var cols = COVERAGE_COLS[state.coverageLevel];
+    var rows = coverageRows();
+    if (state.coverageSearch) {
+      var q = state.coverageSearch.toLowerCase();
+      var nameCol = cols[0][0];
+      rows = rows.filter(function (r) { return String(r[nameCol]).toLowerCase().indexOf(q) !== -1; });
+    }
+    var sortCol = state.coverageSort.col, sortDir = state.coverageSort.dir;
+    rows = rows.slice().sort(function (a, b) {
+      var av = a[sortCol], bv = b[sortCol];
+      if (av === null || av === undefined) av = -Infinity;
+      if (bv === null || bv === undefined) bv = -Infinity;
+      if (typeof av === "string") { av = av.toLowerCase(); bv = String(bv).toLowerCase(); }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    var thead = cols.map(function (c) {
+      var cls = c[0] === sortCol ? (sortDir === "asc" ? "sorted-asc" : "sorted-desc") : "";
+      return '<th class="' + cls + '" data-col="' + c[0] + '">' + c[1] + '</th>';
+    }).join("");
+
+    var tbody = rows.map(function (r, i) {
+      var cells = cols.map(function (c) {
+        var key = c[0];
+        if (key === "flags") return "<td>" + flagBadges(r) + "</td>";
+        var v = r[key];
+        if (RAG_COLS[key]) {
+          var rag = RAG_COLS[key] === "dropout" ? dropoutRag(v) : coverageRag(v);
+          return '<td class="pct-cell ' + ragTextClass(rag) + '">' + fmtPct(v) + "</td>";
+        }
+        return "<td>" + (v === null || v === undefined ? "—" : v) + "</td>";
+      }).join("");
+      var clickable = state.coverageLevel !== "uc";
+      return '<tr class="' + (clickable ? "clickable" : "") + '" data-idx="' + i + '">' + cells + "</tr>" +
+        (state.coverageLevel === "uc" ? '<tr class="expand-row" id="expand-' + i + '" style="display:none;"><td colspan="' + cols.length + '">' + ucDetailHtml(r) + '</td></tr>' : "");
+    }).join("");
+
+    el.innerHTML =
+      renderBreadcrumb() +
+      '<div class="card">' +
+      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search ' + state.coverageLevel + '..." value="' + state.coverageSearch + '" id="coverage-search"></div>' +
+      '<div class="table-scroll"><table><thead><tr>' + thead + '</tr></thead><tbody>' + tbody + '</tbody></table></div>' +
+      (rows.length === 0 ? '<p style="color:var(--text-dim);">No rows match.</p>' : '') +
+      '</div>';
+
+    document.getElementById("coverage-search").addEventListener("input", function (e) {
+      state.coverageSearch = e.target.value; renderCoverage();
+    });
+    el.querySelectorAll("th[data-col]").forEach(function (th) {
+      th.addEventListener("click", function () {
+        var col = th.dataset.col;
+        if (state.coverageSort.col === col) state.coverageSort.dir = state.coverageSort.dir === "asc" ? "desc" : "asc";
+        else state.coverageSort = { col: col, dir: "desc" };
+        renderCoverage();
+      });
+    });
+    el.querySelectorAll("a[data-nav]").forEach(function (a) {
+      a.addEventListener("click", function () {
+        if (a.dataset.nav === "province") { state.coverageLevel = "district"; state.coverageDistrict = null; state.coverageTehsil = null; }
+        if (a.dataset.nav === "district") { state.coverageLevel = "tehsil"; state.coverageTehsil = null; }
+        state.coverageSearch = ""; renderCoverage();
+      });
+    });
+    if (state.coverageLevel !== "uc") {
+      el.querySelectorAll("tr.clickable").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          var r = rows[Number(tr.dataset.idx)];
+          if (state.coverageLevel === "district") { state.coverageLevel = "tehsil"; state.coverageDistrict = r.district; }
+          else if (state.coverageLevel === "tehsil") { state.coverageLevel = "uc"; state.coverageTehsil = r.tehsil; }
+          state.coverageSearch = ""; state.coverageSort = { col: cols[1][0], dir: "desc" };
+          renderCoverage();
+        });
+      });
+    } else {
+      el.querySelectorAll("tbody tr[data-idx]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          var exp = document.getElementById("expand-" + tr.dataset.idx);
+          exp.style.display = exp.style.display === "none" ? "table-row" : "none";
+        });
+      });
+    }
+  }
+
+  function ucDetailHtml(r) {
+    var fields = [["Access", r.access_rating], ["Utilisation", r.utilisation_rating],
+      ["IPV1%", fmtPct(r.ipv1_pct)], ["IPV2%", fmtPct(r.ipv2_pct)], ["TCV%", fmtPct(r.tcv_pct)],
+      ["Penta2%", fmtPct(r.penta2_pct)]];
+    return '<div class="mini-grid">' + fields.map(function (f) {
+      return "<div><strong>" + f[0] + ":</strong> " + (f[1] === null || f[1] === undefined ? "—" : f[1]) + "</div>";
+    }).join("") + "</div>";
+  }
+
+  // ================= SURVEILLANCE =================
+  function diseaseKpiCard(label, value, sub) {
+    return '<div class="kpi-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
+      (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+  }
+
+  function renderSurveillance() {
+    var el = document.getElementById("tab-surveillance");
+    var v = DATA.vpd;
+    if (v.status === "awaiting_data") {
+      el.innerHTML = '<div class="card"><h2>VPD Surveillance</h2><div class="placeholder-card">' +
+        '<div class="icon">⏳</div>No VPD surveillance file was uploaded for this run.</div></div>';
+      return;
+    }
+    var msl = v.msl, diph = v.diphtheria, pert = v.pertussis, nnt = v.nnt;
+
+    var mslKpis = [
+      diseaseKpiCard("Suspected (YTD)", fmtNum(msl.suspected_ytd), "Weeks 1-" + v.latest_epi_week),
+      diseaseKpiCard("Suspected (latest week)", fmtNum(msl.suspected_latest_week), "Epi week " + v.latest_epi_week),
+      diseaseKpiCard("Sample collection rate", fmtPct(msl.sample_collection_rate_pct), ""),
+      diseaseKpiCard("Sample adequacy rate", fmtPct(msl.sample_adequacy_rate_pct), "of collected samples"),
+    ].join("");
+
+    var classRows = Object.keys(msl.classification_breakdown).sort(function (a, b) {
+      return msl.classification_breakdown[b] - msl.classification_breakdown[a];
+    }).map(function (k) {
+      return "<tr><td>" + k + "</td><td>" + fmtNum(msl.classification_breakdown[k]) + "</td></tr>";
+    }).join("");
+
+    var districtRowsHtml = msl.district_breakdown.slice().sort(function (a, b) { return b.suspected - a.suspected; })
+      .map(function (r) {
+        return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.measles_confirmed) +
+          "</td><td>" + fmtNum(r.rubella_confirmed) + "</td></tr>";
+      }).join("");
+
+    var diphKpis = [
+      diseaseKpiCard("Cases (YTD)", fmtNum(diph.ytd.case_count), diph.ytd.districts_affected + " districts affected"),
+      diseaseKpiCard("Lab confirmed", fmtNum(diph.ytd.lab_confirmed_count), ""),
+      diseaseKpiCard("No DPT history", fmtPct(diph.ytd.pct_no_dpt_history), ""),
+      diseaseKpiCard("Aged 5+", fmtPct(diph.ytd.pct_aged_5_plus), ""),
+      diseaseKpiCard("Deaths", fmtNum(diph.ytd.deaths), ""),
+    ].join("");
+
+    var pertRowsHtml = pert.district_breakdown.slice().sort(function (a, b) { return b.case_count - a.case_count; })
+      .map(function (r) { return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+
+    var nntKpis = [
+      diseaseKpiCard("Cases (YTD)", fmtNum(nnt.ytd.case_count), ""),
+      diseaseKpiCard("Deaths", fmtNum(nnt.ytd.deaths), ""),
+    ].join("");
+    var nntRowsHtml = nnt.by_district_ytd.slice().sort(function (a, b) { return b.case_count - a.case_count; })
+      .map(function (r) { return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+
+    el.innerHTML =
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--measles);"></span>Measles &amp; Rubella (weeks 1-' + v.latest_epi_week + ', 2026)</h2>' +
+        '<div class="grid kpi-row">' + mslKpis + '</div>' +
+        '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-msl-trend"></canvas></div>' +
+        '<div class="grid two-col" style="margin-top:10px;">' +
+          '<div><h3>Final classification</h3><div class="table-scroll"><table><thead><tr><th>Classification</th><th>Count</th></tr></thead><tbody>' + classRows + '</tbody></table></div></div>' +
+          '<div><h3>Age distribution</h3><div class="chart-wrap"><canvas id="chart-msl-age"></canvas></div></div>' +
+        '</div>' +
+        '<h3>MCV dose status</h3><div class="chart-wrap"><canvas id="chart-msl-dose"></canvas></div>' +
+        '<h3>District-wise (suspected / measles-confirmed / rubella-confirmed)</h3>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Measles confirmed</th><th>Rubella confirmed</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div>' +
+      '</div>' +
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--diphtheria);"></span>Diphtheria</h2>' +
+        '<div class="grid kpi-row">' + diphKpis + '</div>' +
+        '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-diph-trend"></canvas></div>' +
+      '</div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (by district, YTD)</h2>' +
+          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div></div>' +
+        '<div class="card"><h2><span class="disease-tag" style="background:var(--nnt);"></span>Neonatal Tetanus</h2>' +
+          '<div class="grid kpi-row">' + nntKpis + '</div>' +
+          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + nntRowsHtml + '</tbody></table></div></div>' +
+      '</div>' +
+      '<div class="card"><h2>AFP Surveillance</h2><div class="placeholder-card"><div class="icon">⏳</div>' + v.afp.message + '</div></div>';
+
+    destroyChart("mslTrend"); destroyChart("mslAge"); destroyChart("mslDose"); destroyChart("diphTrend");
+
+    var trend = msl.weekly_trend;
+    charts.mslTrend = new Chart(document.getElementById("chart-msl-trend"), {
+      type: "line",
+      data: {
+        labels: trend.map(function (r) { return "W" + r.epi_week; }),
+        datasets: [
+          { label: "Suspected", data: trend.map(function (r) { return r.suspected; }), borderColor: "#1a3a7a", backgroundColor: "#1a3a7a", tension: 0.2 },
+          { label: "Measles confirmed", data: trend.map(function (r) { return r.measles_confirmed; }), borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.2 },
+          { label: "Rubella confirmed", data: trend.map(function (r) { return r.rubella_confirmed; }), borderColor: "#b06a00", backgroundColor: "#b06a00", tension: 0.2 },
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+    });
+
+    var ageOrder = ["0-8m", "9-23m", "24-59m", "60m+"];
+    charts.mslAge = new Chart(document.getElementById("chart-msl-age"), {
+      type: "bar",
+      data: { labels: ageOrder, datasets: [{ label: "Suspected cases", data: ageOrder.map(function (k) { return msl.age_distribution[k] || 0; }), backgroundColor: "#1a5fb4" }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    var doseOrder = ["Zero dose", "1 dose", "2 doses", "Unknown"];
+    charts.mslDose = new Chart(document.getElementById("chart-msl-dose"), {
+      type: "bar",
+      data: {
+        labels: doseOrder,
+        datasets: [
+          { label: "Suspected", data: doseOrder.map(function (k) { return msl.dose_status_suspected[k] || 0; }), backgroundColor: "#94a3c4" },
+          { label: "Confirmed measles", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_measles[k] || 0; }), backgroundColor: "#c5221f" },
+          { label: "Confirmed rubella", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_rubella[k] || 0; }), backgroundColor: "#b06a00" },
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+    });
+
+    var dtrend = diph.weekly_trend;
+    charts.diphTrend = new Chart(document.getElementById("chart-diph-trend"), {
+      type: "bar",
+      data: { labels: dtrend.map(function (r) { return "W" + r.epi_week; }), datasets: [{ label: "Cases", data: dtrend.map(function (r) { return r.case_count; }), backgroundColor: "#7d3c98" }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+  }
+
+  // ================= SUPERVISION =================
+  function renderSupervision() {
+    var el = document.getElementById("tab-supervision");
+    el.innerHTML = '<div class="card"><h2>Supervisory Visits</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
+      DATA.supervision.message + '</div></div>';
+  }
+
+  // ================= DATA QUALITY =================
+  function renderQuality() {
+    var el = document.getElementById("tab-quality");
+    var rep = DATA.quality.coverage_report;
+    var flagTiles = Object.keys(rep.flags_by_type || {}).map(function (k) {
+      return diseaseKpiCard(k.replace(/_/g, " "), fmtNum(rep.flags_by_type[k]), "coverage domain");
+    }).join("");
+    var exclTiles = Object.keys(rep.exclusions_by_reason || {}).map(function (k) {
+      return diseaseKpiCard("excluded", fmtNum(rep.exclusions_by_reason[k]), k);
+    }).join("");
+
+    var allFlags = DATA.quality.coverage_flags.concat(
+      DATA.quality.vpd_flags.map(function (f) { return Object.assign({}, f, { level: f.level }); })
+    );
+    var types = Array.from(new Set(allFlags.map(function (f) { return f.flag_type; }))).sort();
+    var typeOptions = '<option value="">All flag types</option>' + types.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join("");
+
+    var filtered = allFlags.filter(function (f) {
+      if (state.qualityFilterType && f.flag_type !== state.qualityFilterType) return false;
+      if (state.qualitySearch && String(f.entity).toLowerCase().indexOf(state.qualitySearch.toLowerCase()) === -1) return false;
+      return true;
+    });
+    var pageSize = 50;
+    var pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    state.qualityPage = Math.min(state.qualityPage, pageCount - 1);
+    var pageRows = filtered.slice(state.qualityPage * pageSize, (state.qualityPage + 1) * pageSize);
+
+    var flagRowsHtml = pageRows.map(function (f) {
+      return "<tr><td>" + (f.period_id || "") + "</td><td>" + f.level + "</td><td>" + f.entity + "</td><td>" + f.flag_type + "</td><td>" + (f.detail || "") + "</td></tr>";
+    }).join("");
+
+    var exclRowsHtml = DATA.quality.coverage_exclusions.map(function (r) {
+      return "<tr><td>" + r.period_id + "</td><td>" + r.level + "</td><td>" + r.entity + "</td><td>" + r.reason + "</td></tr>";
+    }).join("");
+
+    el.innerHTML =
+      '<div class="card"><h2>Flags by type</h2><div class="grid kpi-row">' + flagTiles + '</div></div>' +
+      '<div class="card"><h2>Excluded rows</h2><div class="grid kpi-row">' + (exclTiles || "<p>None.</p>") + '</div>' +
+        '<div class="table-scroll"><table><thead><tr><th>Period</th><th>Level</th><th>Entity</th><th>Reason</th></tr></thead><tbody>' + exclRowsHtml + '</tbody></table></div></div>' +
+      '<div class="card"><h2>All flags (' + fmtNum(filtered.length) + ')</h2>' +
+        '<div class="controls-row">' +
+          '<select class="filter-select" id="quality-type-filter">' + typeOptions + '</select>' +
+          '<input type="text" class="search-box" placeholder="Search entity..." id="quality-search" value="' + state.qualitySearch + '">' +
+        '</div>' +
+        '<div class="table-scroll"><table><thead><tr><th>Period</th><th>Level</th><th>Entity</th><th>Flag type</th><th>Detail</th></tr></thead><tbody>' + flagRowsHtml + '</tbody></table></div>' +
+        '<div class="pagination">' +
+          '<button id="q-prev" ' + (state.qualityPage === 0 ? "disabled" : "") + '>Prev</button>' +
+          '<span>Page ' + (state.qualityPage + 1) + ' of ' + pageCount + '</span>' +
+          '<button id="q-next" ' + (state.qualityPage >= pageCount - 1 ? "disabled" : "") + '>Next</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById("quality-type-filter").value = state.qualityFilterType;
+    document.getElementById("quality-type-filter").addEventListener("change", function (e) {
+      state.qualityFilterType = e.target.value; state.qualityPage = 0; renderQuality();
+    });
+    document.getElementById("quality-search").addEventListener("input", function (e) {
+      state.qualitySearch = e.target.value; state.qualityPage = 0; renderQuality();
+    });
+    document.getElementById("q-prev").addEventListener("click", function () { state.qualityPage--; renderQuality(); });
+    document.getElementById("q-next").addEventListener("click", function () { state.qualityPage++; renderQuality(); });
+  }
+
+  // ---------- Dispatch ----------
+  function renderTab(name) {
+    if (name === "overview") renderOverview();
+    else if (name === "coverage") renderCoverage();
+    else if (name === "surveillance") renderSurveillance();
+    else if (name === "supervision") renderSupervision();
+    else if (name === "quality") renderQuality();
+  }
+
+  renderTab("overview");
+})();
+</script>
+</body>
+</html>

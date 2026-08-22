@@ -1,0 +1,9 @@
+{
+  "_comment": "Edit this file by hand before each bulletin run -- these are the Key Messages shown on the bulletin's footer. The pipeline never generates these automatically (see build brief: 'Keep the Key Messages block as an editable input, since a human writes those').",
+  "messages": [
+    "Intensify outbreak response and mop-up vaccination in measles hotspots, particularly among zero-dose children.",
+    "Strengthen surveillance, sample collection and timely reporting of VPDs.",
+    "Ensure complete vaccination and promote routine immunization to prevent VPDs.",
+    "Improve AFP surveillance performance in below-benchmark districts."
+  ]
+}

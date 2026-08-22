@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: kp-epi-generator
+    runtime: docker
+    # Free tier costs nothing but spins the service down after 15 min of
+    # inactivity (next request takes ~30-60s to wake it back up) and has
+    # 512MB RAM, which may be tight running Chromium + pandas on a large
+    # file. If that's a problem in practice, change this to "starter"
+    # (~$7/month, always-on, more RAM) in the Render dashboard -- no code
+    # change needed either way.
+    plan: free
+    region: singapore
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

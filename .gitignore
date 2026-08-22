@@ -1,0 +1,15 @@
+# Real health data -- never committed, uploaded fresh each run/session.
+data/raw/*.xlsx
+data/processed/*
+output/*
+webapp/uploads/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Editors / OS
+.DS_Store
+Thumbs.db

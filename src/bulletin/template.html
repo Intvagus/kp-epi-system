@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EPI Bulletin</title>
+<style>
+  @page { size: A4; margin: 6mm 8mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Arial, "Segoe UI", Helvetica, sans-serif; color: #1b1f27; font-size: 8.5px;
+    background: #fff;
+  }
+  :root {
+    --navy: #16326b; --navy2: #0e2050; --gold: #f2c027; --measles: #1a5fb4; --diphtheria: #6a3391;
+    --pertussis: #1e7a37; --nnt: #d9720a; --good: #1e8e3e; --poor: #c5221f;
+  }
+  .header {
+    background: linear-gradient(180deg, var(--navy) 0%, var(--navy2) 100%); color: #fff;
+    text-align: center; padding: 5px 10px 6px 10px; border-radius: 4px;
+  }
+  .header h1 { margin: 0; font-size: 16px; letter-spacing: 0.4px; font-weight: 800; }
+  .header h2 { margin: 1px 0 4px 0; font-size: 12.5px; color: var(--gold); font-weight: 800; letter-spacing: 0.2px; }
+  .header .pill {
+    display: inline-block; background: #2452a0; padding: 2px 12px; border-radius: 10px; font-size: 9px; font-weight: 700;
+  }
+  .attribution { text-align: center; padding: 3px 0; font-size: 9px; font-weight: 700; }
+  .attribution .sub { font-weight: 600; color: #444; font-size: 8.5px; }
+
+  .section {
+    border: 1px solid #c7ccd6; border-radius: 3px; margin-bottom: 3.5px; overflow: hidden;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .section-head {
+    background: var(--navy); color: #fff; font-weight: 800; font-size: 9.5px; padding: 3px 7px;
+    letter-spacing: 0.2px;
+  }
+  .section-head.diphtheria { background: var(--diphtheria); }
+  .section-head.pertussis { background: var(--pertussis); }
+  .section-head.nnt { background: var(--nnt); }
+  .section-body { padding: 4px 7px; }
+
+  .highlights-grid { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr; gap: 7px; }
+  .bullets { list-style: none; margin: 0; padding: 0; }
+  .bullets li { padding: 1.5px 0 1.5px 12px; position: relative; font-size: 8.5px; line-height: 1.22; }
+  .bullets li::before { content: "•"; position: absolute; left: 1px; color: var(--navy); font-weight: 900; }
+  .bullets li b { color: var(--poor); }
+
+  .class-table-title, .panel-title { font-weight: 800; font-size: 8px; text-align: center; margin-bottom: 2px; color: var(--navy); }
+  table.class-table { width: 100%; border-collapse: collapse; font-size: 8px; }
+  table.class-table td { padding: 1px 4px; border-bottom: 1px solid #eee; }
+  table.class-table td:last-child { text-align: right; font-weight: 800; }
+  .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+  table.indicator-table { width: 100%; border-collapse: collapse; font-size: 8px; }
+  table.indicator-table td { padding: 1.5px 4px; border-bottom: 1px solid #eee; }
+  table.indicator-table td:last-child { text-align: right; font-weight: 800; color: var(--navy); white-space: nowrap; }
+  .na-note { font-size: 6.5px; color: #888; font-style: italic; }
+
+  .three-panel { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+  .dose-row { display: flex; justify-content: space-around; text-align: center; margin-top: 2px; }
+  .dose-item .icon-circle {
+    width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; margin: 0 auto 1px auto; color: #fff; font-weight: 800;
+  }
+  .dose-item .n { font-weight: 900; font-size: 10.5px; }
+  .dose-item .pct { font-size: 7px; color: #555; }
+  .dose-item .lbl { font-size: 6.5px; color: #333; }
+
+  .chart-box { position: relative; height: 78px; }
+  .chart-box.wide { height: 110px; }
+  .chart-box.tall { height: 90px; }
+
+  .diph-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 7px; }
+
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 5px; break-inside: avoid; page-break-inside: avoid; }
+  table.simple { width: 100%; border-collapse: collapse; font-size: 7.5px; }
+  table.simple th { background: #eef1f8; padding: 1.5px 4px; text-align: left; }
+  table.simple td { padding: 1.5px 4px; border-bottom: 1px solid #f0f0f0; }
+  .grand-total {
+    text-align: center; font-weight: 900; font-size: 9px; padding: 3px; background: #f0f0f0; margin-top: 2px;
+  }
+  .nnt-narrative { font-size: 8px; line-height: 1.3; }
+  .nnt-narrative .icon-line { margin: 4px 0; }
+  .two-col-district-table { columns: 2; column-gap: 7px; font-size: 7.5px; }
+  .two-col-district-table div { display: flex; justify-content: space-between; padding: 0.5px 4px; border-bottom: 1px dotted #ddd; break-inside: avoid; }
+
+  .afp-placeholder {
+    text-align: center; padding: 8px; color: #666; font-size: 8.5px; background: #f7f7f9; border: 1px dashed #bbb;
+    border-radius: 4px;
+  }
+
+  .key-messages { display: flex; background: var(--navy); border-radius: 4px; overflow: hidden; margin-top: 2px; break-inside: avoid; }
+  .key-messages .kicker {
+    background: var(--navy2); color: #fff; font-weight: 900; font-size: 9.5px; padding: 6px 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 55px; text-align: center;
+  }
+  .key-messages .content { background: #fff; flex: 1; padding: 4px 10px; }
+  .key-messages ul { margin: 0; padding-left: 14px; font-size: 8px; line-height: 1.35; }
+
+  .kpi-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .kpi-tile { text-align: center; background: #fff; border: 1px solid #dfe3ea; border-radius: 4px; padding: 5px 3px; }
+  .kpi-tile .v { font-size: 15px; font-weight: 900; color: var(--navy); }
+  .kpi-tile .l { font-size: 7px; text-transform: uppercase; color: #666; font-weight: 700; }
+  .kpi-tile .s { font-size: 7px; color: #888; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>/*__CHARTJS_SOURCE__*/</script>
+<script id="bulletin-data" type="application/json">/*__BULLETIN_DATA_JSON__*/</script>
+<script>
+(function () {
+  "use strict";
+  var B = JSON.parse(document.getElementById("bulletin-data").textContent);
+
+  function n(v) { return v === null || v === undefined ? "—" : Number(v).toLocaleString(); }
+  function pct(v) { return v === null || v === undefined || isNaN(v) ? "—" : v.toFixed(0) + "%"; }
+  function pct1(v) { return v === null || v === undefined || isNaN(v) ? "—" : v.toFixed(1) + "%"; }
+
+  var CLASS_COLORS = {
+    "Laboratory Confirmed Measles": "#c5221f", "Discarded": "#1e8e3e",
+    "Clinically Compatible Measles": "#e8820c", "Double Infection": "#6a3391",
+    "Epidemiologically Confirmed Measles": "#0e7c86", "Pending Classification": "#e0b400",
+    "Laboratory Confirmed Measles and Rubella": "#a13d63", "Clinically Compatible Rubella": "#c98a2b",
+    "Epidemiologically Confirmed Rubella": "#3d6a9c",
+  };
+  var CLASS_ORDER = ["Laboratory Confirmed Measles", "Discarded", "Clinically Compatible Measles",
+    "Double Infection", "Epidemiologically Confirmed Measles", "Pending Classification",
+    "Laboratory Confirmed Measles and Rubella", "Clinically Compatible Rubella", "Epidemiologically Confirmed Rubella"];
+
+  var msl = B.msl, diph = B.diphtheria, pert = B.pertussis, nnt = B.nnt;
+
+  // ---------- Highlights bullets ----------
+  var pctZeroDose = msl.pct_zero_dose_eligible_this_week;
+  var bullets = [
+    n(msl.suspected_this_week) + " suspected measles-rubella cases were reported during " + B.week_label + ".",
+    "<b>" + n(msl.measles_confirmed_this_week) + "</b> Measles lab confirmed and <b>" + n(msl.rubella_confirmed_this_week) + "</b> Rubella confirmed.",
+    (pctZeroDose === null ? "No eligible (age 9m+) suspected cases this week to assess dose status." :
+      "<b>" + pct(pctZeroDose) + "</b> of eligible suspected measles-rubella cases were zero-dose for the Measles-Rubella (MR) vaccine."),
+  ];
+  var wow = msl.week_over_week;
+  if (wow) {
+    var dir = wow.delta > 0 ? "up" : wow.delta < 0 ? "down" : "unchanged";
+    bullets.push("Suspected cases this week are " + dir + (wow.delta !== 0 ? " by " + Math.abs(wow.delta) : "") +
+      " compared to Week " + wow.prior_week + " (" + n(wow.prior_week_count) + " cases).");
+  }
+
+  var classRows = CLASS_ORDER.filter(function (k) { return msl.classification_breakdown_this_week[k]; })
+    .map(function (k) {
+      return '<tr><td><span class="swatch" style="background:' + CLASS_COLORS[k] + '"></span>' + k + '</td><td>' +
+        n(msl.classification_breakdown_this_week[k]) + '</td></tr>';
+    }).join("");
+
+  var indicatorRows = [
+    ["Total suspected cases", n(msl.cumulative.suspected)],
+    ["Total measles cases (confirmed)", n(msl.cumulative.measles_confirmed)],
+    ["Total rubella cases (confirmed)", n(msl.cumulative.rubella_confirmed)],
+    ["Measles incidence rate per million", '<span class="na-note">N/A*</span>'],
+    ["Rubella incidence rate per million", '<span class="na-note">N/A*</span>'],
+    ["Non-measles non-rubella rate/100,000", '<span class="na-note">N/A*</span>'],
+    ["Sample collection rate", pct(msl.cumulative.sample_collection_rate_pct)],
+  ].map(function (r) { return "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>"; }).join("");
+
+  document.getElementById("root").innerHTML = `
+    <div class="header">
+      <h1>SURVEILLANCE WEEKLY BULLETIN</h1>
+      <h2>VACCINE PREVENTABLE DISEASES (VPD)</h2>
+      <span class="pill">Epidemiological Bulletin ${B.week_label}</span>
+    </div>
+    <div class="attribution">
+      Directorate General Health Services | Expanded Programme on Immunization (EPI) Section
+      <div class="sub">Khyber Pakhtunkhwa</div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">MEASLES-RUBELLA HIGHLIGHTS (${B.week_label.toUpperCase()})</div>
+      <div class="section-body highlights-grid">
+        <div><ul class="bullets">${bullets.map(function(b){return "<li>"+b+"</li>";}).join("")}</ul></div>
+        <div>
+          <div class="class-table-title">Final classification of Suspected Measles/Rubella Cases ${B.week_label}</div>
+          <table class="class-table">${classRows || '<tr><td colspan="2">No cases this week.</td></tr>'}</table>
+        </div>
+        <div>
+          <div class="class-table-title">MEASLES INDICATOR (${B.cumulative_label})</div>
+          <table class="indicator-table">${indicatorRows}</table>
+          <div class="na-note">*Requires a population denominator not yet available in the source data.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section"><div class="section-body three-panel">
+      <div>
+        <div class="panel-title">VACCINATION STATUS OF SUSPECTED CASES (${B.week_label.toUpperCase()}, AGE 9M+)</div>
+        <div id="dose-suspected" class="dose-row"></div>
+      </div>
+      <div>
+        <div class="panel-title">VACCINATION STATUS OF CONFIRMED CASES (${B.week_label.toUpperCase()}, AGE 9M+)</div>
+        <div id="dose-confirmed" class="dose-row"></div>
+      </div>
+      <div>
+        <div class="panel-title">SUSPECTED CASES BY AGE GROUP (${B.week_label.toUpperCase()})</div>
+        <div class="chart-box"><canvas id="chart-age"></canvas></div>
+      </div>
+    </div></div>
+
+    <div class="section">
+      <div class="section-head">DISTRICT-WISE SUSPECTED MEASLES-RUBELLA CASES VS CONFIRMED CASES (${B.week_label.toUpperCase()})</div>
+      <div class="section-body"><div class="chart-box wide"><canvas id="chart-district"></canvas></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head diphtheria">DIPHTHERIA SITUATION IN KP</div>
+      <div class="section-body diph-grid">
+        <div><ul class="bullets">${diphtheriaBullets()}</ul></div>
+        <div>
+          <div class="panel-title">CASES BY AGE BAND (${B.cumulative_label})</div>
+          <div class="chart-box tall"><canvas id="chart-diph-age"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="three-col">
+      <div class="section">
+        <div class="section-head pertussis">PERTUSSIS CASES ${B.cumulative_label} (n=${n(pert.grand_total_cumulative)})</div>
+        <div class="section-body">
+          <table class="simple"><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>${pertRows()}</tbody></table>
+          <div class="grand-total">GRAND TOTAL ${n(pert.grand_total_cumulative)}</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-head nnt">NEONATAL TETANUS (NNT)</div>
+        <div class="section-body nnt-narrative">
+          <div class="icon-line">👶 During ${B.week_label}, ${n(nnt.this_week_case_count)} suspected case(s) of NNT reported${nntThisWeekDistricts()}.</div>
+          <div class="icon-line">💉 NNT cases ${B.cumulative_label} (n = ${n(nnt.cumulative_case_count)} cases).</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-head" style="background:#2b4a8c;">NNT CASES ${B.cumulative_label} (n=${n(nnt.cumulative_case_count)})</div>
+        <div class="section-body">
+          <div class="two-col-district-table">${nntDistrictRows()}</div>
+          <div class="grand-total">GRAND TOTAL ${n(nnt.cumulative_case_count)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">AFP SURVEILLANCE</div>
+      <div class="section-body">
+        <div class="afp-placeholder">⏳ ${B.afp.message}</div>
+      </div>
+    </div>
+
+    <div class="key-messages">
+      <div class="kicker">📣<br>KEY<br>MESSAGES</div>
+      <div class="content"><ul>${(B.key_messages || []).map(function(m){return "<li>"+m+"</li>";}).join("")}</ul></div>
+    </div>
+  `;
+
+  function diphtheriaBullets() {
+    var c = diph.this_week, cum = diph.cumulative;
+    var items = [
+      n(c.case_count) + " case(s) reported during " + B.week_label + ".",
+      "<b>" + n(cum.case_count) + "</b> cases have been reported from <b>" + n(cum.districts_affected) +
+        "</b> districts during " + B.cumulative_label + ".",
+      "<b>" + n(cum.lab_confirmed_count) + "</b> lab confirmed.",
+      "<b>" + pct(cum.pct_no_dpt_history) + "</b> (n=" + Math.round(cum.case_count * cum.pct_no_dpt_history / 100) +
+        ") of reported cases have no recorded DPT vaccination history.",
+      "<b>" + pct(cum.pct_aged_5_plus) + "</b> (n=" + Math.round(cum.case_count * cum.pct_aged_5_plus / 100) +
+        ") of cases are aged 5 years and above.",
+      cum.deaths > 0 ? "<b>" + n(cum.deaths) + "</b> diphtheria-related death(s) reported to date." :
+        "Zero diphtheria-related deaths reported to date.",
+    ];
+    return items.map(function (b) { return "<li>" + b + "</li>"; }).join("");
+  }
+
+  function pertRows() {
+    return pert.district_breakdown_cumulative.slice().sort(function (a, b) { return b.case_count - a.case_count; })
+      .map(function (r) { return "<tr><td>" + r.district + "</td><td>" + n(r.case_count) + "</td></tr>"; }).join("");
+  }
+
+  function nntThisWeekDistricts() {
+    var d = nnt.this_week_district_breakdown;
+    if (!d.length) return "";
+    return " — " + d.map(function (r) { return r.district + (r.case_count > 1 ? " (" + r.case_count + ")" : ""); }).join(", ");
+  }
+
+  function nntDistrictRows() {
+    return nnt.cumulative_district_breakdown.slice().sort(function (a, b) { return a.district.localeCompare(b.district); })
+      .map(function (r) { return "<div><span>" + r.district + "</span><span><b>" + r.case_count + "</b></span></div>"; }).join("");
+  }
+
+  function doseIcons(container, breakdown) {
+    var order = [["Zero dose", "#c5221f", "0"], ["1 dose", "#e8820c", "1"], ["2 doses", "#1e8e3e", "2"], ["Unknown", "#888", "?"]];
+    var total = order.reduce(function (s, o) { return s + (breakdown[o[0]] || 0); }, 0);
+    document.getElementById(container).innerHTML = order.map(function (o) {
+      var v = breakdown[o[0]] || 0;
+      var p = total ? Math.round(v / total * 100) : 0;
+      return '<div class="dose-item"><div class="icon-circle" style="background:' + o[1] + '">' + o[2] + '</div>' +
+        '<div class="n">' + v + '</div><div class="pct">(' + p + '%)</div><div class="lbl">' + o[0] + '</div></div>';
+    }).join("");
+  }
+  doseIcons("dose-suspected", msl.dose_status_suspected_this_week);
+  doseIcons("dose-confirmed", msl.dose_status_confirmed_this_week);
+
+  Chart.defaults.font.size = 8;
+  var ageOrder = ["0-8m", "9-23m", "24-59m", "60m+"];
+  new Chart(document.getElementById("chart-age"), {
+    type: "bar",
+    data: { labels: ageOrder, datasets: [{ data: ageOrder.map(function (k) { return msl.age_distribution_this_week[k] || 0; }), backgroundColor: "#1a5fb4" }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, animation: false }
+  });
+
+  var dRows = msl.district_breakdown_this_week.slice().sort(function (a, b) { return b.suspected - a.suspected; });
+  new Chart(document.getElementById("chart-district"), {
+    type: "bar",
+    data: {
+      labels: dRows.map(function (r) { return r.district; }),
+      datasets: [
+        { label: "Suspected", data: dRows.map(function (r) { return r.suspected; }), backgroundColor: "#1a5fb4" },
+        { label: "Measles conf.", data: dRows.map(function (r) { return r.measles_confirmed; }), backgroundColor: "#c5221f" },
+        { label: "Rubella conf.", data: dRows.map(function (r) { return r.rubella_confirmed; }), backgroundColor: "#6a3391" },
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      layout: { padding: { right: 4 } },
+      plugins: { legend: { position: "top", labels: { boxWidth: 7, padding: 6, font: { size: 6.5 } } } },
+      scales: { x: { ticks: { font: { size: 5.5 }, maxRotation: 60, minRotation: 60 } }, y: { ticks: { font: { size: 6.5 } } } } }
+  });
+
+  var ageBandOrder = Object.keys(diph.age_band_counts_cumulative).sort(function (a, b) {
+    var av = a === "<1y" ? -1 : parseInt(a), bv = b === "<1y" ? -1 : parseInt(b);
+    return av - bv;
+  });
+  new Chart(document.getElementById("chart-diph-age"), {
+    type: "bar",
+    data: { labels: ageBandOrder, datasets: [{ data: ageBandOrder.map(function (k) { return diph.age_band_counts_cumulative[k]; }), backgroundColor: "#6a3391" }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 6.5 } } } } }
+  });
+
+  window.__CHARTS_READY__ = true;
+})();
+</script>
+</body>
+</html>
