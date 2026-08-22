@@ -1,14 +1,44 @@
 # KP EPI Dashboard & Bulletin System — How to Use It
 
-This is a weekly routine for someone on the EPI team, not a developer. No
-coding knowledge needed once it's set up.
+Two ways to use this. Pick whichever fits:
 
-## One-time setup (already done on this machine)
+- **Web app** (recommended for sharing with colleagues) — open a link in a
+  browser, upload the Excel files, download the dashboard and bulletin. No
+  install, no terminal. See "Using the web app" below. Deployment setup for
+  this is in `DEPLOY.md`.
+- **Local command** — for the person running it on their own PC. See "The
+  weekly routine (local command)" below.
+
+## Using the web app
+
+Once deployed (see `DEPLOY.md`), share the Render URL with anyone on the
+team who needs it. They:
+
+1. Open the link.
+2. Upload the coverage workbook(s) (required for the dashboard) and the VPD
+   line list (optional, needed for the Surveillance tab and the bulletin).
+3. Optionally paste in this week's Key Messages (one per line) — leave blank
+   to use the default set.
+4. Click **Generate dashboard & bulletin**.
+5. On the results page, open/download `dashboard.html` and the
+   `Bulletin_Week_N_year.pdf/.xlsx/.pptx` files.
+
+Nothing is saved permanently on the server — each upload gets its own
+temporary workspace that's cleared automatically after 24 hours. There is
+**no login** on this tool (by design, at the project owner's request) — treat
+the URL itself as the only thing controlling access, and don't post it
+somewhere public if that's a concern.
+
+## The weekly routine (local command)
+
+For running it yourself on one PC without the web app.
+
+### One-time setup (already done on this machine)
 
 Python and all required libraries are already installed in this project
 folder. Nothing to install to use it week to week.
 
-## The weekly routine
+### Steps
 
 1. **Drop the new Excel file(s) into `data/raw/`.**
    - Coverage file (monthly or cumulative EPI coverage export) — same 4-sheet

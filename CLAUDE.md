@@ -16,7 +16,48 @@
   (Chromium), one A4 page, matches the user-supplied sample bulletin layout.
   Word export not built (brief: only build on request, warn layout won't survive).
 - 46 tests passing (`pytest tests/`), pinned to real numbers throughout.
-- Run everything with `python run_weekly.py` from the project root.
+- Run everything locally with `python run_weekly.py` from the project root.
+- **Web app** (`webapp/app.py`, Flask): upload-and-download front end wrapping
+  the exact same pipeline/dashboard/bulletin modules, with per-job temp
+  directories for isolation between concurrent uploads. Containerized
+  (`Dockerfile`) for deployment to Render.com (`render.yaml`) — see
+  "Web app / hosting" below. No login (explicit user choice, no password) --
+  job IDs are random UUIDs, the only isolation in place.
+
+## Web app / hosting
+
+- Every pipeline/dashboard/bulletin entry point now takes optional
+  `raw_dir`/`processed_dir`/`output_dir`/`output_path`/`key_messages_path`
+  parameters, defaulting to this project's `data/raw`, `data/processed`,
+  `output/`, and `data/bulletin_inputs/key_messages.json` (unchanged CLI
+  behaviour). The web app passes per-job temp paths instead so uploads never
+  collide. Local CLI usage (`python run_weekly.py`) is unaffected.
+- **Real bug caught during testing**: Werkzeug's `secure_filename()` replaces
+  spaces and parentheses with underscores, which silently broke
+  `config.infer_period()`'s regex (it needs the exact original filename,
+  e.g. `"Dec 2025 Coverage Analysis (0-11).xlsx"`). Fixed with a minimal
+  custom sanitizer (`webapp/app.py::_safe_upload_name`) that only strips path
+  components / rejects traversal, without mangling the filename itself.
+  Lesson: any future upload-handling code must NOT run uploaded EPI filenames
+  through `secure_filename()`.
+- Dashboard build no longer hard-requires `vpd_summary.json` — if only a
+  coverage file is uploaded, the Surveillance tab renders an explicit
+  "awaiting data" state (`VPD_AWAITING_STUB` in `src/dashboard/build.py`)
+  instead of crashing. The bulletin still hard-requires VPD data (it's
+  VPD-only by design) and fails with a clear message if none was uploaded.
+- Deployment target: Render.com, Docker runtime (`python:3.12-slim` +
+  `playwright install --with-deps chromium` + gunicorn). Chosen because
+  Playwright needs a real Chromium install, which rules out the smallest
+  free/serverless tiers that don't run full containers.
+- **Not yet done** (as of this write-up): actually deploying to get a live
+  URL. That requires the user to create a GitHub repo (push this local git
+  repo to it) and a Render account, then connect the two — account creation
+  isn't something this assistant can do on the user's behalf. The Flask app
+  itself has been tested and confirmed working locally end-to-end (upload →
+  processing → dashboard + bulletin download, ~15s for a full 3-file run);
+  the Docker build itself has NOT been tested locally (no Docker available
+  on this machine) — Render's own build step will be the first real test of
+  the Dockerfile.
 
 ## Confirmed bulletin decisions
 
