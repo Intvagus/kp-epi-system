@@ -145,8 +145,8 @@ def test_uc_compliance_covers_wider_antigen_set_than_district(district_and_uc):
     # UC level has OPV/PCV/Rota that District/Tehsil never has.
     assert "OPV0" in compliance["by_antigen"]
     assert "PCV1" in compliance["by_antigen"]
-    assert len(compliance["top_ucs"]) == 15
-    assert len(compliance["bottom_ucs"]) == 15
+    assert len(compliance["top_ucs"]) == 5
+    assert len(compliance["bottom_ucs"]) == 5
 
 
 def test_uc_compliance_top_ucs_excludes_outlier_artifacts(district_and_uc):
@@ -169,3 +169,21 @@ def test_trends_reports_insufficient_history_with_only_one_cumulative_file(distr
     trends = build_trends(district_all, "cumulative_annual")
     assert trends["status"] == "insufficient_history"
     assert trends["periods_available"] == 1
+    assert trends["message"].count("file has") == 1  # singular, not "1 file(s)"
+
+
+def test_every_section_has_a_short_insight_for_both_period_kinds(summary):
+    for kind in ["monthly", "cumulative"]:
+        period = summary["periods"][kind]
+        assert period["executive"]["insight"]
+        assert period["uc_compliance"]["insight"]
+        assert period["antigen_insight"]
+        assert period["target_gap"]["insight_by_antigen"]["FIC"]
+        assert period["dropout"]["insight"]
+
+
+def test_antigen_analysis_uses_vaccinated_not_covered_as_the_field_name(district_and_uc):
+    district_all, _ = district_and_uc
+    rows = build_antigen_analysis(district_all, "2025-12")
+    assert "vaccinated" in rows[0]
+    assert "covered" not in rows[0]

@@ -173,8 +173,25 @@ def build_uc_compliance(uc_all: pd.DataFrame, period_id: str) -> dict:
     # outliers and "bottom" has no equivalent problem.
     top_ranked = valid[valid[col] <= OUTLIER_PCT_THRESHOLD].sort_values(col, ascending=False)
     bottom_ranked = valid.sort_values(col, ascending=False)
-    top = top_ranked.head(15)[["uc_name", "district", col]].rename(columns={col: "pct"})
-    bottom = bottom_ranked.tail(15)[["uc_name", "district", col]].rename(columns={col: "pct"}).iloc[::-1]
+    top = top_ranked.head(5)[["uc_name", "district", col]].rename(columns={col: "pct"})
+    bottom = bottom_ranked.tail(5)[["uc_name", "district", col]].rename(columns={col: "pct"}).iloc[::-1]
+
+    fic = by_antigen.get("FIC", {})
+    insight_parts = []
+    if fic.get("total_with_data"):
+        insight_parts.append(
+            f"{fic['good']} of {fic['total_with_data']} Union Councils ({fic['compliant_pct']:.1f}%) have "
+            f"reached the {COVERAGE_GOOD}% FIC (Fully Immunized Child) target; "
+            f"{fic['poor']} UC(s) are in the critical band and need priority intervention."
+        )
+    if not top.empty and not bottom.empty:
+        best_row, worst_row = top.iloc[0], bottom.iloc[0]
+        insight_parts.append(
+            f"{best_row['uc_name']} ({best_row['district']}) has the highest FIC coverage at "
+            f"{best_row['pct']:.1f}%; {worst_row['uc_name']} ({worst_row['district']}) has the lowest "
+            f"at {worst_row['pct']:.1f}%."
+        )
+    insight = " ".join(insight_parts) or "Not enough Union Council-level data this period to generate an insight."
 
     return {
         "period_id": period_id,
@@ -182,6 +199,7 @@ def build_uc_compliance(uc_all: pd.DataFrame, period_id: str) -> dict:
         "by_antigen": by_antigen,
         "top_ucs": top.to_dict(orient="records"),
         "bottom_ucs": bottom.to_dict(orient="records"),
+        "insight": insight,
     }
 
 
@@ -197,13 +215,30 @@ def build_antigen_analysis(district_all: pd.DataFrame, period_id: str) -> list[d
         pct = prov[f"{key}_pct_reported"]
         rows.append({
             "antigen": label,
-            "covered": None if pd.isna(prov[n_col]) else int(prov[n_col]),
+            "vaccinated": None if pd.isna(prov[n_col]) else int(prov[n_col]),
             "target": None if pd.isna(prov[target_col]) else int(prov[target_col]),
             "pct": _r(pct),
             "rag": coverage_rag(pct),
         })
     rows.sort(key=lambda r: (r["pct"] is None, r["pct"] if r["pct"] is not None else 0), reverse=True)
     return rows
+
+
+def _antigen_insight(rows: list[dict]) -> str:
+    valid = [r for r in rows if r["pct"] is not None]
+    if not valid:
+        return "Not enough antigen-level data this period to generate an insight."
+    best, worst = valid[0], valid[-1]
+    parts = [
+        f"{best['antigen']} has the highest coverage at {best['pct']:.1f}% "
+        f"({best['vaccinated']:,} of {best['target']:,} children vaccinated), while {worst['antigen']} "
+        f"has the lowest at {worst['pct']:.1f}%."
+    ]
+    critical = [r["antigen"] for r in valid if r["rag"] == "poor"]
+    if critical:
+        verb = "is" if len(critical) == 1 else "are"
+        parts.append(f"{', '.join(critical)} {verb} in the critical coverage band and need urgent attention.")
+    return " ".join(parts)
 
 
 def build_target_gap(district_all: pd.DataFrame, period_id: str) -> dict:
@@ -216,15 +251,27 @@ def build_target_gap(district_all: pd.DataFrame, period_id: str) -> dict:
         valid = districts[districts[target_col].notna() & (districts[target_col] > 0)].copy()
         valid["gap"] = valid[target_col] - valid[n_col]
         valid["pct_achievement"] = valid[n_col] / valid[target_col] * 100
-        ranked = valid.sort_values("gap", ascending=False).head(10)
+        ranked = valid.sort_values("gap", ascending=False).head(5)
         by_antigen[label] = [
             {
-                "district": r["district"], "target": int(r[target_col]), "covered": int(r[n_col]),
+                "district": r["district"], "target": int(r[target_col]), "vaccinated": int(r[n_col]),
                 "gap": int(r["gap"]), "pct_achievement": _r(r["pct_achievement"]),
             }
             for _, r in ranked.iterrows()
         ]
-    return {"period_id": period_id, "by_antigen": by_antigen}
+
+    insight_by_antigen = {}
+    for label, rows in by_antigen.items():
+        if rows:
+            top = rows[0]
+            insight_by_antigen[label] = (
+                f"{top['district']} has the largest {label} immunization gap: {top['gap']:,} children "
+                f"still unvaccinated against a target of {top['target']:,} ({top['pct_achievement']:.1f}% achieved)."
+            )
+        else:
+            insight_by_antigen[label] = f"No district-level target data available for {label} this period."
+
+    return {"period_id": period_id, "by_antigen": by_antigen, "insight_by_antigen": insight_by_antigen}
 
 
 def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, period_id: str) -> dict:
@@ -233,18 +280,40 @@ def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, per
 
     district_ranked = districts[districts["dropout_pct_reported"].notna()].sort_values(
         "dropout_pct_reported", ascending=False
-    ).head(10)
+    ).head(5)
     uc_ranked = uc_period[uc_period["dropout_pct"].notna()].sort_values(
         "dropout_pct", ascending=False
-    ).head(15)
+    ).head(5)
+
+    insight_parts = []
+    if not district_ranked.empty:
+        top_d = district_ranked.iloc[0]
+        insight_parts.append(
+            f"{top_d['district']} has the highest Penta1-to-Penta3 dropout rate at "
+            f"{top_d['dropout_pct_reported']:.1f}%, meaning many children who started the Penta series "
+            f"did not complete it."
+        )
+    if not uc_ranked.empty:
+        top_u = uc_ranked.iloc[0]
+        insight_parts.append(
+            f"At Union Council level, {top_u['uc_name']} ({top_u['district']}) has the highest dropout, "
+            f"at {top_u['dropout_pct']:.1f}%."
+        )
+    neg_d = int(districts["is_negative_dropout"].sum())
+    neg_u = int(uc_period["is_negative_dropout"].fillna(False).sum())
+    if neg_d or neg_u:
+        insight_parts.append(
+            f"{neg_d} district(s) and {neg_u} UC(s) show a negative dropout rate, a data-entry error "
+            f"(more children recorded for Penta3 than Penta1), kept and flagged rather than removed."
+        )
 
     return {
         "period_id": period_id,
         "formula": "Penta1 -> Penta3 dropout = (Penta1# - Penta3#) / Penta1# x 100. "
                    "No other antigen pair in this dataset shares a common target denominator "
                    "with its earlier dose, so no other dropout indicator is computed.",
-        "negative_dropout_districts": int(districts["is_negative_dropout"].sum()),
-        "negative_dropout_ucs": int(uc_period["is_negative_dropout"].fillna(False).sum()),
+        "negative_dropout_districts": neg_d,
+        "negative_dropout_ucs": neg_u,
         "worst_districts": [
             {"district": r["district"], "dropout_pct": _r(r["dropout_pct_reported"])}
             for _, r in district_ranked.iterrows()
@@ -253,6 +322,7 @@ def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, per
             {"uc_name": r["uc_name"], "district": r["district"], "dropout_pct": _r(r["dropout_pct"])}
             for _, r in uc_ranked.iterrows()
         ],
+        "insight": " ".join(insight_parts) or "Not enough dropout data this period to generate an insight.",
     }
 
 
@@ -261,16 +331,18 @@ def build_trends(district_all: pd.DataFrame, period_type: str) -> dict:
     monthly-vs-monthly or cumulative-vs-cumulative only, never monthly vs
     cumulative (see build_executive_summary's docstring)."""
     kind_label = "monthly" if period_type == "monthly" else "cumulative"
+    trend_label = "month-over-month" if period_type == "monthly" else "year-over-year"
     periods = sorted(district_all.loc[district_all["period_type"] == period_type, "period_id"].unique())
     if len(periods) < 2:
+        file_word = "file has" if len(periods) == 1 else "files have"
         return {
             "status": "insufficient_history",
             "periods_available": len(periods),
             "message": (
-                "Only {} {} coverage file(s) have been uploaded so far. A {}-over-{} trend "
-                "needs at least two {} periods -- this section activates automatically once a "
-                "second {} file is added, no rebuild needed."
-            ).format(len(periods), kind_label, kind_label, kind_label, kind_label, kind_label),
+                f"Only {len(periods)} {kind_label} coverage {file_word} been uploaded so far. "
+                f"A {trend_label} trend needs at least two {kind_label} periods -- this section "
+                f"activates automatically once a second {kind_label} file is added, no rebuild needed."
+            ),
         }
 
     latest_id, prior_id = periods[-1], periods[-2]
@@ -289,9 +361,22 @@ def build_trends(district_all: pd.DataFrame, period_type: str) -> dict:
             "delta": _r(delta) if delta is not None else None,
         }
 
+    deltas = [(label, v["delta"]) for label, v in by_antigen.items() if v["delta"] is not None]
+    if deltas:
+        best_label, best_delta = max(deltas, key=lambda x: x[1])
+        worst_label, worst_delta = min(deltas, key=lambda x: x[1])
+        direction = "improved" if worst_delta >= 0 else "declined"
+        insight = (
+            f"From {prior_label} to {latest_label}, {best_label} improved the most "
+            f"({best_delta:+.1f} percentage points), while {worst_label} {direction} the most "
+            f"({worst_delta:+.1f} percentage points)."
+        )
+    else:
+        insight = "Not enough matching antigen data between these two periods to generate an insight."
+
     return {
         "status": "ok", "latest_label": latest_label, "prior_label": prior_label,
-        "by_antigen": by_antigen,
+        "by_antigen": by_antigen, "insight": insight,
     }
 
 
@@ -300,11 +385,13 @@ def build_period_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, perio
     executive = build_executive_summary(district_all, uc_all, period_id)
     if executive["status"] != "ok":
         return {"status": "no_data"}
+    antigen_rows = build_antigen_analysis(district_all, period_id)
     return {
         "status": "ok",
         "executive": executive,
         "uc_compliance": build_uc_compliance(uc_all, period_id),
-        "antigen_analysis": build_antigen_analysis(district_all, period_id),
+        "antigen_analysis": antigen_rows,
+        "antigen_insight": _antigen_insight(antigen_rows),
         "target_gap": build_target_gap(district_all, period_id),
         "dropout": build_dropout_analysis(district_all, uc_all, period_id),
         "trends": build_trends(district_all, period_type),
