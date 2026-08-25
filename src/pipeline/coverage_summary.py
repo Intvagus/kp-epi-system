@@ -104,36 +104,22 @@ def _compliance_counts(values: pd.Series) -> dict:
     }
 
 
-def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) -> dict:
-    monthly_id = _pick_period(district_all, "monthly")
-    cumulative_id = _pick_period(district_all, "cumulative_annual")
-    current_id = monthly_id or cumulative_id
-    if current_id is None:
-        return {"status": "no_data"}
+def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, period_id: str) -> dict:
+    """Executive summary for ONE period (monthly or cumulative) in isolation.
 
-    prov = _province_row(district_all, current_id)
-    current_label = district_all[district_all["period_id"] == current_id]["period_label"].iloc[0]
-    uc_current = uc_all[uc_all["period_id"] == current_id]
+    Deliberately does not compare across period types -- monthly and
+    cumulative data are never merged or averaged together anywhere in this
+    module (see build_coverage_summary), only ever shown as two separate,
+    complete views."""
+    prov = _province_row(district_all, period_id)
+    if prov is None:
+        return {"status": "no_data"}
+    current_label = district_all[district_all["period_id"] == period_id]["period_label"].iloc[0]
+    uc_current = uc_all[uc_all["period_id"] == period_id]
 
     antigen_extremes = _best_worst_antigen(prov)
     uc_extremes = _best_worst_uc(uc_current)
     compliance = _compliance_counts(uc_current[f"{SUMMARY_ANTIGEN}_pct"])
-
-    month_vs_cumulative = None
-    if monthly_id and cumulative_id and monthly_id != cumulative_id:
-        prov_cum = _province_row(district_all, cumulative_id)
-        cum_label = district_all[district_all["period_id"] == cumulative_id]["period_label"].iloc[0]
-        if prov_cum is not None:
-            month_vs_cumulative = {
-                "monthly_label": current_label, "cumulative_label": cum_label,
-                "by_antigen": {
-                    label: {
-                        "monthly_pct": _r(prov[f"{key}_pct_reported"]),
-                        "cumulative_pct": _r(prov_cum[f"{key}_pct_reported"]),
-                    }
-                    for key, label in DISTRICT_ANTIGENS
-                },
-            }
 
     fic_pct = prov["fic_pct_reported"]
     insight_parts = []
@@ -158,7 +144,7 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) ->
 
     return {
         "status": "ok",
-        "current_period_id": current_id, "current_period_label": current_label,
+        "current_period_id": period_id, "current_period_label": current_label,
         "target_surviving_infants": None if pd.isna(prov["target_surviving_infants"]) else int(prov["target_surviving_infants"]),
         "target_bcg": None if pd.isna(prov["target_bcg"]) else int(prov["target_bcg"]),
         "fic_pct": _r(fic_pct),
@@ -168,7 +154,6 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) ->
         "best_antigen": antigen_extremes["best"], "worst_antigen": antigen_extremes["worst"],
         "best_uc": uc_extremes["best"], "worst_uc": uc_extremes["worst"],
         "uc_compliance": compliance,
-        "month_vs_cumulative": month_vs_cumulative,
         "insight": " ".join(insight_parts) or "Not enough valid data this period to generate an insight.",
     }
 
@@ -271,20 +256,24 @@ def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, per
     }
 
 
-def build_trends(district_all: pd.DataFrame) -> dict:
-    monthly_periods = sorted(district_all.loc[district_all["period_type"] == "monthly", "period_id"].unique())
-    if len(monthly_periods) < 2:
+def build_trends(district_all: pd.DataFrame, period_type: str) -> dict:
+    """Trend between the two most recent periods of the SAME period_type --
+    monthly-vs-monthly or cumulative-vs-cumulative only, never monthly vs
+    cumulative (see build_executive_summary's docstring)."""
+    kind_label = "monthly" if period_type == "monthly" else "cumulative"
+    periods = sorted(district_all.loc[district_all["period_type"] == period_type, "period_id"].unique())
+    if len(periods) < 2:
         return {
             "status": "insufficient_history",
-            "monthly_periods_available": len(monthly_periods),
+            "periods_available": len(periods),
             "message": (
-                "Only {} monthly coverage file(s) have been uploaded so far. Month-over-month "
-                "trends need at least two monthly periods -- this section activates automatically "
-                "once a second monthly file is added, no rebuild needed."
-            ).format(len(monthly_periods)),
+                "Only {} {} coverage file(s) have been uploaded so far. A {}-over-{} trend "
+                "needs at least two {} periods -- this section activates automatically once a "
+                "second {} file is added, no rebuild needed."
+            ).format(len(periods), kind_label, kind_label, kind_label, kind_label, kind_label),
         }
 
-    latest_id, prior_id = monthly_periods[-1], monthly_periods[-2]
+    latest_id, prior_id = periods[-1], periods[-2]
     prov_latest = _province_row(district_all, latest_id)
     prov_prior = _province_row(district_all, prior_id)
     latest_label = district_all[district_all["period_id"] == latest_id]["period_label"].iloc[0]
@@ -306,11 +295,11 @@ def build_trends(district_all: pd.DataFrame) -> dict:
     }
 
 
-def build_coverage_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) -> dict:
-    executive = build_executive_summary(district_all, uc_all)
+def build_period_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, period_id: str, period_type: str) -> dict:
+    """All 6 dashboard sections for ONE period, standalone."""
+    executive = build_executive_summary(district_all, uc_all, period_id)
     if executive["status"] != "ok":
         return {"status": "no_data"}
-    period_id = executive["current_period_id"]
     return {
         "status": "ok",
         "executive": executive,
@@ -318,5 +307,23 @@ def build_coverage_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) -> 
         "antigen_analysis": build_antigen_analysis(district_all, period_id),
         "target_gap": build_target_gap(district_all, period_id),
         "dropout": build_dropout_analysis(district_all, uc_all, period_id),
-        "trends": build_trends(district_all),
+        "trends": build_trends(district_all, period_type),
     }
+
+
+def build_coverage_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame) -> dict:
+    """Two fully independent period views -- monthly and cumulative are never
+    merged or compared against each other, only ever shown side by side as
+    separate complete dashboards (each with all 6 sections)."""
+    monthly_id = _pick_period(district_all, "monthly")
+    cumulative_id = _pick_period(district_all, "cumulative_annual")
+
+    periods = {
+        "monthly": (build_period_summary(district_all, uc_all, monthly_id, "monthly")
+                    if monthly_id else {"status": "no_data"}),
+        "cumulative": (build_period_summary(district_all, uc_all, cumulative_id, "cumulative_annual")
+                       if cumulative_id else {"status": "no_data"}),
+    }
+    if periods["monthly"]["status"] != "ok" and periods["cumulative"]["status"] != "ok":
+        return {"status": "no_data"}
+    return {"status": "ok", "periods": periods}

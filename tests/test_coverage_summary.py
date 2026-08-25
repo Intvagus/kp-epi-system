@@ -1,6 +1,10 @@
 """coverage_summary.py tested against the real December 2025 + Jan-Dec 2025
 files (run through the actual load/clean pipeline), pinned to real numbers --
 same convention as test_indicators.py.
+
+Monthly and cumulative are always built and asserted separately here -- this
+module never merges the two period types into one view (see
+build_coverage_summary's docstring).
 """
 from pathlib import Path
 
@@ -45,47 +49,67 @@ def district_and_uc():
     return pd.concat(district_frames, ignore_index=True), pd.concat(uc_frames, ignore_index=True)
 
 
-def test_coverage_summary_status_ok(district_and_uc):
+@pytest.fixture(scope="module")
+def summary(district_and_uc):
     district_all, uc_all = district_and_uc
-    summary = build_coverage_summary(district_all, uc_all)
+    return build_coverage_summary(district_all, uc_all)
+
+
+def test_coverage_summary_status_ok(summary):
     assert summary["status"] == "ok"
 
 
-def test_executive_summary_picks_december_as_current_period(district_and_uc):
-    district_all, uc_all = district_and_uc
-    summary = build_coverage_summary(district_all, uc_all)
-    exe = summary["executive"]
+def test_both_period_kinds_are_present_and_independent(summary):
+    # Monthly and cumulative must both build to a full, standalone summary --
+    # neither should reference or merge the other.
+    assert summary["periods"]["monthly"]["status"] == "ok"
+    assert summary["periods"]["cumulative"]["status"] == "ok"
+    assert "month_vs_cumulative" not in summary["periods"]["monthly"]["executive"]
+    assert "month_vs_cumulative" not in summary["periods"]["cumulative"]["executive"]
+
+
+def test_monthly_executive_summary_is_december_2025(summary):
+    exe = summary["periods"]["monthly"]["executive"]
     assert exe["current_period_id"] == "2025-12"
+    assert exe["current_period_label"] == "December 2025"
     # Province total row, December 2025: FIC# 62461 / target 95554 = 65.4% -> 65.0 rounded to 1dp
     assert exe["fic_pct"] == pytest.approx(65.0, abs=0.5)
     assert exe["fic_rag"] == "warning"
 
 
-def test_executive_summary_all_json_types_are_native(district_and_uc):
+def test_cumulative_executive_summary_is_jan_dec_2025(summary):
+    exe = summary["periods"]["cumulative"]["executive"]
+    assert exe["current_period_id"] == "2025-annual"
+    assert exe["current_period_label"] == "Jan-Dec 2025 (cumulative)"
+    # Cumulative FIC coverage is higher than the December-only snapshot --
+    # confirms these are genuinely different, non-merged numbers.
+    assert exe["fic_pct"] > summary["periods"]["monthly"]["executive"]["fic_pct"]
+
+
+def test_all_json_types_are_native(summary):
     import json
-    district_all, uc_all = district_and_uc
-    summary = build_coverage_summary(district_all, uc_all)
     # Would previously silently stringify numpy int64 percentages (e.g. "65"
     # instead of 65.0) via json.dump's default=str fallback -- assert real
     # floats/ints survive a round-trip instead.
     payload = json.loads(json.dumps(summary, default=str))
-    assert isinstance(payload["executive"]["fic_pct"], float)
-    assert isinstance(payload["executive"]["uc_compliance"]["good"], int)
+    assert isinstance(payload["periods"]["monthly"]["executive"]["fic_pct"], float)
+    assert isinstance(payload["periods"]["monthly"]["executive"]["uc_compliance"]["good"], int)
 
 
-def test_best_antigen_is_bcg_december_2025(district_and_uc):
-    district_all, uc_all = district_and_uc
-    summary = build_coverage_summary(district_all, uc_all)
-    assert summary["executive"]["best_antigen"]["antigen"] == "BCG"
+def test_best_antigen_can_differ_between_monthly_and_cumulative(summary):
+    # December alone: BCG leads (95%). Jan-Dec cumulative: Penta1 narrowly
+    # overtakes BCG (96% vs 95%) -- genuinely different numbers, which is
+    # exactly why these two views must never be merged into one.
+    assert summary["periods"]["monthly"]["executive"]["best_antigen"]["antigen"] == "BCG"
+    assert summary["periods"]["cumulative"]["executive"]["best_antigen"]["antigen"] == "Penta1"
 
 
-def test_month_vs_cumulative_present_when_both_period_types_exist(district_and_uc):
-    district_all, uc_all = district_and_uc
-    summary = build_coverage_summary(district_all, uc_all)
-    mvc = summary["executive"]["month_vs_cumulative"]
-    assert mvc is not None
-    assert mvc["monthly_label"] == "December 2025"
-    assert mvc["cumulative_label"] == "Jan-Dec 2025 (cumulative)"
+def test_cumulative_has_its_own_full_six_sections(summary):
+    cum = summary["periods"]["cumulative"]
+    assert cum["uc_compliance"]["period_id"] == "2025-annual"
+    assert cum["target_gap"]["period_id"] == "2025-annual"
+    assert cum["dropout"]["period_id"] == "2025-annual"
+    assert len(cum["antigen_analysis"]) == 9
 
 
 def test_antigen_analysis_covers_all_nine_district_antigens(district_and_uc):
@@ -125,8 +149,23 @@ def test_uc_compliance_covers_wider_antigen_set_than_district(district_and_uc):
     assert len(compliance["bottom_ucs"]) == 15
 
 
+def test_uc_compliance_top_ucs_excludes_outlier_artifacts(district_and_uc):
+    _, uc_all = district_and_uc
+    compliance = build_uc_compliance(uc_all, "2025-12")
+    # A UC above the outlier threshold (>120%) is a known data-entry artifact
+    # (see clean.py's is_outlier flag), never a genuine top performer.
+    assert all(r["pct"] <= 120 for r in compliance["top_ucs"])
+
+
 def test_trends_reports_insufficient_history_with_only_one_monthly_file(district_and_uc):
     district_all, _ = district_and_uc
-    trends = build_trends(district_all)
+    trends = build_trends(district_all, "monthly")
     assert trends["status"] == "insufficient_history"
-    assert trends["monthly_periods_available"] == 1
+    assert trends["periods_available"] == 1
+
+
+def test_trends_reports_insufficient_history_with_only_one_cumulative_file(district_and_uc):
+    district_all, _ = district_and_uc
+    trends = build_trends(district_all, "cumulative_annual")
+    assert trends["status"] == "insufficient_history"
+    assert trends["periods_available"] == 1
