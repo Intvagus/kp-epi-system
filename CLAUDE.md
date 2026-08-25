@@ -10,6 +10,16 @@
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
+  Coverage tab has a district-level choropleth map (plain inline SVG, no
+  mapping library, no basemap tiles -- stays fully offline) using
+  `src/dashboard/kp_districts.geojson` (District/ADM2 boundaries, sourced
+  once from geoBoundaries, CC-BY 4.0, checked into the repo). Newer
+  sub-split districts (Chitral Upper/Lower, Kohistan's 3-way split,
+  Kurram's 2-way split, South Waziristan's 2-way split) share one older
+  boundary polygon each -- `coverage_summary.py`'s `DISTRICT_TO_BOUNDARY`
+  combines them by summing raw counts, same rule as every other aggregate
+  in this pipeline. All 36 real districts are mapped; verified exhaustive
+  in `tests/test_coverage_summary.py`.
 - **Part 3 (bulletin)**: done for VPD surveillance (PDF + Excel annex + PPTX).
   `src/bulletin/{build.py,exports.py,template.html}` ->
   `output/Bulletin_Week_<N>_<year>.{pdf,xlsx,pptx}`. Rendered with Playwright

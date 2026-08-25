@@ -183,12 +183,17 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
           f"{len(payload['quality']['coverage_flags'])} quality flags)")
 
     chartjs_source = (DASHBOARD_DIR / "chart.umd.min.js").read_text(encoding="utf-8")
+    # District/ADM2 boundaries for the Coverage tab's choropleth map, sourced
+    # once from geoBoundaries (CC-BY 4.0) and checked into the repo -- never
+    # fetched at build or view time, so the dashboard stays fully offline.
+    kp_geojson = (DASHBOARD_DIR / "kp_districts.geojson").read_text(encoding="utf-8")
     template = (DASHBOARD_DIR / "template.html").read_text(encoding="utf-8")
 
     html = (
         template
         .replace("/*__CHARTJS_SOURCE__*/", chartjs_source)
         .replace("/*__EPI_DATA_JSON__*/", payload_json)
+        .replace("/*__KP_GEOJSON__*/", kp_geojson)
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

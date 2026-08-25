@@ -187,3 +187,43 @@ def test_antigen_analysis_uses_vaccinated_not_covered_as_the_field_name(district
     rows = build_antigen_analysis(district_all, "2025-12")
     assert "vaccinated" in rows[0]
     assert "covered" not in rows[0]
+
+
+def test_district_to_boundary_mapping_is_exhaustive(district_and_uc):
+    # Every real district (excluding the KP Province Total aggregate row)
+    # must have a boundary polygon -- an unmapped district would silently
+    # vanish from the map otherwise.
+    district_all, _ = district_and_uc
+    from src.pipeline.coverage_summary import build_district_map
+    dmap = build_district_map(district_all, "2025-12")
+    assert dmap["unmapped_districts"] == []
+
+
+def test_district_to_boundary_names_all_exist_in_the_geojson_file():
+    import json
+    from pathlib import Path
+    from src.pipeline.coverage_summary import DISTRICT_TO_BOUNDARY
+    geojson_path = Path(__file__).resolve().parents[1] / "src" / "dashboard" / "kp_districts.geojson"
+    with open(geojson_path, encoding="utf-8") as f:
+        gj = json.load(f)
+    boundary_names_in_file = {f["properties"]["shapeName"] for f in gj["features"]}
+    assert set(DISTRICT_TO_BOUNDARY.values()) <= boundary_names_in_file
+
+
+def test_district_map_kohistan_is_summed_not_averaged(district_and_uc):
+    # Kohistan combines 3 real districts (Kohistan Lower, Kohistan Upper,
+    # Kolai Palas Kohistan) -- confirm the combined FIC vaccinated count on
+    # the map equals the sum of the three, not an average of percentages.
+    district_all, _ = district_and_uc
+    from src.pipeline.coverage_summary import build_district_map
+    dmap = build_district_map(district_all, "2025-12")
+    kohistan = dmap["features"]["Kohistan"]
+    assert set(kohistan["component_districts"]) == {"Kohistan Lower", "Kohistan Upper", "Kolai Palas Kohistan"}
+
+    rows = district_all[(district_all["period_id"] == "2025-12") &
+                         (district_all["district"].isin(kohistan["component_districts"]))]
+    expected_vaccinated = int(rows["fic_n"].sum())
+    expected_target = int(rows["target_surviving_infants"].sum())
+    assert kohistan["by_antigen"]["FIC"]["vaccinated"] == expected_vaccinated
+    assert kohistan["by_antigen"]["FIC"]["target"] == expected_target
+    assert kohistan["by_antigen"]["FIC"]["pct"] == pytest.approx(expected_vaccinated / expected_target * 100, abs=0.1)

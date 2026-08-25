@@ -132,6 +132,19 @@
     font-size: 12.5px; font-weight: 600; cursor: pointer; margin-right: 8px; color: var(--text-dim);
   }
   .period-pill.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .map-wrap { position: relative; }
+  .map-wrap svg { width: 100%; height: auto; display: block; }
+  .map-wrap path.district-shape {
+    stroke: #fff; stroke-width: 1; cursor: pointer; transition: opacity .1s;
+  }
+  .map-wrap path.district-shape:hover { opacity: 0.75; stroke: var(--navy-dark); stroke-width: 1.5; }
+  .map-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+  .map-legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+  .map-tooltip {
+    position: fixed; pointer-events: none; background: var(--navy-dark); color: #fff; padding: 6px 10px;
+    border-radius: 6px; font-size: 12px; line-height: 1.5; z-index: 100; max-width: 240px; display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
   .disease-tag { display: inline-block; width: 4px; height: 16px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .expand-row td { background: #fafbfe; padding: 10px 14px; }
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
@@ -172,11 +185,13 @@
 
 <script>/*__CHARTJS_SOURCE__*/</script>
 <script id="epi-data" type="application/json">/*__EPI_DATA_JSON__*/</script>
+<script id="kp-geo" type="application/json">/*__KP_GEOJSON__*/</script>
 <script>
 (function () {
   "use strict";
   var DATA = JSON.parse(document.getElementById("epi-data").textContent);
   var CFG = DATA.config;
+  var KP_GEO = JSON.parse(document.getElementById("kp-geo").textContent);
   var charts = {}; // name -> Chart instance, so we can destroy before re-render
 
   function fmtPct(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : v.toFixed(1) + "%"; }
@@ -223,7 +238,7 @@
     periodId: DATA.default_period_id,
     coverageLevel: "district", coverageDistrict: null, coverageTehsil: null,
     coverageSort: { col: "fic_pct_reported", dir: "desc" }, coverageSearch: "",
-    qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC",
+    qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC", mapAntigen: "FIC",
     coveragePeriodKind: "monthly",
   };
   periodSelect.addEventListener("change", function () {
@@ -378,6 +393,120 @@
       box.addEventListener("blur", function () {
         try { localStorage.setItem("epi-insight:" + box.dataset.insightId, box.innerText.trim()); } catch (e) {}
       });
+    });
+  }
+
+  // ---- District coverage map ----
+  // No basemap tiles and no mapping library -- the dashboard must stay a
+  // single offline file (same reasoning as inlining Chart.js), and a
+  // province-only choropleth doesn't need street-level imagery underneath
+  // it. Boundaries are projected and drawn as plain inline SVG <path>s.
+  var MAP_PROJECTION = (function () {
+    var minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    function scan(coords, depth) {
+      if (depth === 0) {
+        var lon = coords[0], lat = coords[1];
+        if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+      } else {
+        coords.forEach(function (c) { scan(c, depth - 1); });
+      }
+    }
+    KP_GEO.features.forEach(function (f) {
+      var depth = f.geometry.type === "Polygon" ? 2 : 3;
+      scan(f.geometry.coordinates, depth);
+    });
+    var latMid = (minLat + maxLat) / 2;
+    var cosLat = Math.cos(latMid * Math.PI / 180);
+    var W = 640, H = 520, PAD = 10;
+    var spanX = (maxLon - minLon) * cosLat, spanY = (maxLat - minLat);
+    var scale = Math.min((W - 2 * PAD) / spanX, (H - 2 * PAD) / spanY);
+    var offX = PAD + ((W - 2 * PAD) - spanX * scale) / 2;
+    var offY = PAD + ((H - 2 * PAD) - spanY * scale) / 2;
+    function project(lon, lat) {
+      var x = offX + (lon - minLon) * cosLat * scale;
+      var y = offY + (maxLat - lat) * scale;
+      return [x, y];
+    }
+    function ringPath(ring) {
+      return ring.map(function (pt, i) {
+        var p = project(pt[0], pt[1]);
+        return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
+      }).join(" ") + "Z";
+    }
+    function geometryPath(geom) {
+      if (geom.type === "Polygon") return geom.coordinates.map(ringPath).join(" ");
+      if (geom.type === "MultiPolygon") {
+        return geom.coordinates.map(function (poly) { return poly.map(ringPath).join(" "); }).join(" ");
+      }
+      return "";
+    }
+    return { width: W, height: H, geometryPath: geometryPath };
+  })();
+
+  function districtMapHtml(cs, kind) {
+    if (cs.status !== "ok" || !cs.district_map || cs.district_map.unmapped_districts.length) return "";
+    return '<div class="card"><h2>🗺️ District Coverage Map</h2>' +
+      '<p class="section-note">Each district shaded by antigen coverage for ' + cs.executive.current_period_label +
+        '. A few districts share one boundary with recently-created sister districts (see hover text) -- the shaded figure is their combined coverage.</p>' +
+      '<div id="map-mount-' + kind + '"></div>' +
+    '</div>';
+  }
+
+  // Owns the antigen selector, the SVG, and the legend together and
+  // rebuilds all three on every antigen change (same pattern as
+  // renderTargetGapSection) -- a listener attached to a node that gets
+  // thrown away each render never accumulates.
+  function renderDistrictMap(cs, kind) {
+    var mount = document.getElementById("map-mount-" + kind);
+    if (!mount) return;
+    var antigens = cs.antigen_analysis.map(function (a) { return a.antigen; });
+    if (antigens.indexOf(state.mapAntigen) === -1) state.mapAntigen = "FIC";
+    var options = antigens.map(function (a) {
+      return '<option value="' + a + '"' + (a === state.mapAntigen ? " selected" : "") + '>' + a + '</option>';
+    }).join("");
+
+    var features = cs.district_map.features;
+    var paths = KP_GEO.features.map(function (f) {
+      var name = f.properties.shapeName;
+      var entry = features[name];
+      var d = MAP_PROJECTION.geometryPath(f.geometry);
+      var stat = entry ? entry.by_antigen[state.mapAntigen] : null;
+      var fill = "#d0d5dd";
+      if (stat && stat.pct !== null) fill = ragColor(stat.rag);
+      var label = entry ? entry.component_districts.join(" + ") : name;
+      var detail = stat && stat.pct !== null
+        ? label + "<br>" + state.mapAntigen + ": " + stat.pct.toFixed(1) + "% (" + stat.vaccinated.toLocaleString() + " of " + stat.target.toLocaleString() + ")"
+        : label + "<br>No data";
+      return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
+    }).join("");
+
+    mount.innerHTML =
+      '<div class="controls-row"><label style="font-size:12.5px;">Antigen: </label><select class="filter-select" id="map-antigen-select-' + kind + '">' + options + '</select></div>' +
+      '<div class="map-wrap"><svg viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '">' + paths + '</svg>' +
+        '<div class="map-tooltip" id="map-tooltip-' + kind + '"></div></div>' +
+      '<div class="map-legend">' +
+        '<span><span class="swatch" style="background:#1e8e3e;"></span>Good (&ge;' + CFG.coverage_good + '%)</span>' +
+        '<span><span class="swatch" style="background:#b06a00;"></span>Needs monitoring</span>' +
+        '<span><span class="swatch" style="background:#c5221f;"></span>Critical (&lt;' + CFG.coverage_warning + '%)</span>' +
+        '<span><span class="swatch" style="background:#d0d5dd;"></span>No data</span>' +
+      '</div>' +
+      '<p class="section-note" style="margin-top:6px;">District boundaries: geoBoundaries.org (CC-BY 4.0)</p>';
+
+    var tooltip = document.getElementById("map-tooltip-" + kind);
+    mount.querySelectorAll("path.district-shape").forEach(function (path) {
+      path.addEventListener("mousemove", function (e) {
+        tooltip.innerHTML = path.dataset.detail;
+        tooltip.style.display = "block";
+        tooltip.style.left = (e.clientX + 14) + "px";
+        tooltip.style.top = (e.clientY + 14) + "px";
+      });
+      path.addEventListener("mouseleave", function () { tooltip.style.display = "none"; });
+    });
+
+    document.getElementById("map-antigen-select-" + kind).addEventListener("change", function (e) {
+      state.mapAntigen = e.target.value;
+      renderDistrictMap(cs, kind);
     });
   }
 
@@ -618,6 +747,7 @@
 
     el.innerHTML = pillsHtml +
       executiveOverviewHtml(cs, kind) +
+      districtMapHtml(cs, kind) +
       ucComplianceHtml(cs, kind) +
       antigenAnalysisHtml(cs, kind) +
       '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
@@ -634,6 +764,7 @@
       });
     });
 
+    renderDistrictMap(cs, kind);
     renderUcComplianceChart(cs);
     renderAntigenAnalysisChart(cs);
     renderTargetGapChart(cs, kind);

@@ -39,6 +39,33 @@ UC_ANTIGENS = [
 # and is already what the existing Overview tab ranks districts by.
 SUMMARY_ANTIGEN = "fic"
 
+# Maps this project's 36 real district names (KP Province Total excluded --
+# it's a province-wide aggregate row, not a district) to the boundary
+# polygon name in dashboard/kp_districts.geojson (District/ADM2 boundaries
+# for Pakistan, sourced from geoBoundaries -- https://www.geoboundaries.org,
+# CC-BY 4.0). Several of our districts are newer administrative sub-splits
+# (Chitral, Kohistan, Kurram, and South Waziristan were each divided into
+# 2-3 districts more recently than this boundary set) that don't have their
+# own separate polygon yet -- these are combined onto their shared parent
+# polygon in build_district_map, with the mapped figure computed by SUMMING
+# raw counts across the sub-districts, the same rule every other aggregate
+# in this pipeline uses (sum raw counts, never average percentages -- see
+# indicators.py's module docstring). Verified exhaustive: every one of the
+# 36 real district names has an entry here, and every boundary name on the
+# right exists in kp_districts.geojson (see tests/test_coverage_summary.py).
+DISTRICT_TO_BOUNDARY = {
+    "Abbottabad": "Abbottabad", "Bajaur": "Bajaur", "Bannu": "Bannu", "Battagram": "Battagram",
+    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral", "Chitral Upper": "Chitral",
+    "D.I. Khan": "Dera Ismail Khan", "Dir Lower": "Lower Dir", "Dir Upper": "Upper Dir",
+    "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber", "Kohat": "Kohat",
+    "Kohistan Lower": "Kohistan", "Kohistan Upper": "Kohistan", "Kolai Palas Kohistan": "Kohistan",
+    "Kurram Lower and Central": "Kurram", "Kurram Upper": "Kurram", "Lakki Marwat": "Lakki Marwat",
+    "Malakand": "Malakand", "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
+    "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
+    "Peshawar": "Peshawar", "SW Mehsud Belt": "South Waziristan", "SW Wazir Belt": "South Waziristan",
+    "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
+}
+
 
 def _r(v, nd: int = 1):
     """Round to a plain Python float, or None for NaN. Several source columns
@@ -380,6 +407,48 @@ def build_trends(district_all: pd.DataFrame, period_type: str) -> dict:
     }
 
 
+def build_district_map(district_all: pd.DataFrame, period_id: str) -> dict:
+    """Per-boundary-polygon coverage figures for the district choropleth map.
+
+    Some of our districts are newer sub-splits of the boundary set's older,
+    coarser districts (see DISTRICT_TO_BOUNDARY) -- those are combined onto
+    one polygon by summing raw counts/targets, never by averaging percentages,
+    same rule as every other aggregate in this pipeline."""
+    districts = _district_rows(district_all, period_id)
+    unmapped = sorted(set(districts["district"]) - set(DISTRICT_TO_BOUNDARY))
+
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = districts[districts["district"].isin(component_districts)]
+        by_antigen = {}
+        for key, label in DISTRICT_ANTIGENS:
+            n_col, target_col = (
+                (f"{key}_n", "target_bcg") if key == "bcg" else (f"{key}_n", "target_surviving_infants")
+            )
+            vaccinated = rows[n_col].sum() if not rows.empty else None
+            target = rows[target_col].sum() if not rows.empty else None
+            pct = (vaccinated / target * 100) if target else None
+            by_antigen[label] = {
+                "vaccinated": None if vaccinated is None else int(vaccinated),
+                "target": None if target is None else int(target),
+                "pct": _r(pct),
+                "rag": coverage_rag(pct),
+            }
+        by_boundary[boundary_name] = {
+            "component_districts": component_districts,
+            "by_antigen": by_antigen,
+        }
+
+    return {
+        "period_id": period_id,
+        # Should always be empty -- flagged loudly here rather than silently
+        # dropped if a future district name doesn't have a boundary mapping.
+        "unmapped_districts": unmapped,
+        "features": by_boundary,
+    }
+
+
 def build_period_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, period_id: str, period_type: str) -> dict:
     """All 6 dashboard sections for ONE period, standalone."""
     executive = build_executive_summary(district_all, uc_all, period_id)
@@ -395,6 +464,7 @@ def build_period_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, perio
         "target_gap": build_target_gap(district_all, period_id),
         "dropout": build_dropout_analysis(district_all, uc_all, period_id),
         "trends": build_trends(district_all, period_type),
+        "district_map": build_district_map(district_all, period_id),
     }
 
 
