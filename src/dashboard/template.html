@@ -390,10 +390,10 @@
     var exe = cs.executive;
     var ficRow = cs.antigen_analysis.filter(function (a) { return a.antigen === "FIC"; })[0] || {};
     var kpis = [
-      kpiCard("FIC Coverage", fmtPct(exe.fic_pct), exe.current_period_label, exe.fic_rag),
-      kpiCard("Dropout Rate (Penta1&rarr;Penta3)", fmtPct(exe.dropout_pct), "Province-wide", exe.dropout_rag),
       kpiCard("Target Population", fmtNum(exe.target_surviving_infants), "Surviving infants"),
+      kpiCard("FIC Coverage", fmtPct(exe.fic_pct), exe.current_period_label, exe.fic_rag),
       kpiCard("Children Fully Vaccinated (FIC)", fmtNum(ficRow.vaccinated), "of " + fmtNum(ficRow.target) + " target"),
+      kpiCard("Dropout Rate (Penta1&rarr;Penta3)", fmtPct(exe.dropout_pct), "Province-wide", exe.dropout_rag),
       kpiCard("Best Performing Antigen", exe.best_antigen ? exe.best_antigen.antigen : "—", exe.best_antigen ? fmtPct(exe.best_antigen.pct) : "", "good"),
       kpiCard("Antigen Requiring Attention", exe.worst_antigen ? exe.worst_antigen.antigen : "—", exe.worst_antigen ? fmtPct(exe.worst_antigen.pct) : "", "poor"),
       kpiCard("Top Performing UC", exe.best_uc ? exe.best_uc.uc_name : "—", exe.best_uc ? exe.best_uc.district + " &middot; " + fmtPct(exe.best_uc.pct) : "", "good"),
