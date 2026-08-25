@@ -114,6 +114,12 @@ def build_payload(processed_dir: Path) -> dict:
 
     with open(processed_dir / "data_quality_report.json", encoding="utf-8") as f:
         coverage_report = json.load(f)
+    coverage_summary_path = processed_dir / "coverage_summary.json"
+    if coverage_summary_path.exists():
+        with open(coverage_summary_path, encoding="utf-8") as f:
+            coverage_summary = json.load(f)
+    else:
+        coverage_summary = {"status": "no_data"}
     vpd_summary_path = processed_dir / "vpd_summary.json"
     if vpd_summary_path.exists():
         with open(vpd_summary_path, encoding="utf-8") as f:
@@ -136,6 +142,7 @@ def build_payload(processed_dir: Path) -> dict:
             "tehsil": _load_table(processed_dir, "coverage_tehsil.parquet", TEHSIL_FIELDS),
             "uc": _load_table(processed_dir, "coverage_uc.parquet", UC_FIELDS),
         },
+        "coverage_summary": coverage_summary,
         "quality": {
             "coverage_report": coverage_report,
             "coverage_flags": _load_csv(processed_dir, "quality_flags.csv"),
