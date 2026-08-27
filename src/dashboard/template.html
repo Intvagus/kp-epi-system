@@ -156,6 +156,18 @@
     text-transform: uppercase; letter-spacing: .03em;
   }
   .mini-map-card .map-wrap svg { width: 100%; height: auto; display: block; }
+  .dropout-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .dropout-row:last-child { border-bottom: none; }
+  .dropout-rank {
+    display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+    border-radius: 50%; background: var(--neutral-bg); color: var(--text-dim); font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .dropout-district { flex: 1; font-weight: 600; }
+  .dropout-pct { font-weight: 700; font-size: 14px; }
   .disease-tag { display: inline-block; width: 4px; height: 16px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .expand-row td { background: #fafbfe; padding: 10px 14px; }
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
@@ -432,6 +444,49 @@
   function ragColor(rag) {
     return rag === "good" ? "#1e8e3e" : rag === "warning" ? "#b06a00" : rag === "poor" ? "#c5221f" : "#9aa0a6";
   }
+  // Green/red only (no amber) -- for charts that need a strict pass/fail
+  // read against the province's own defined good-coverage threshold
+  // (config.COVERAGE_GOOD, the same threshold already used everywhere else
+  // in this dashboard -- never a separate, arbitrary cutoff).
+  function targetMetColor(pct) { return pct >= CFG.coverage_good ? "#1e8e3e" : "#c5221f"; }
+
+  // Bakes a text label directly onto each bar via canvas fillText, instead
+  // of relying on hover tooltips -- a PDF/print export or a static
+  // screenshot has no hover state, so any number that matters has to be
+  // permanently visible on the chart itself. Datasets opt in by adding a
+  // parallel `labelText` array (one string per data point); Chart.js itself
+  // ignores that property, this plugin reads it.
+  var barValueLabelsPlugin = {
+    id: "barValueLabels",
+    afterDatasetsDraw: function (chart) {
+      var ctx = chart.ctx;
+      var horizontal = chart.options.indexAxis === "y";
+      ctx.save();
+      ctx.font = "600 11px -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+      ctx.fillStyle = "#1b1f27";
+      ctx.textBaseline = "middle";
+      chart.data.datasets.forEach(function (dataset, di) {
+        if (!dataset.labelText) return;
+        var meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        meta.data.forEach(function (bar, i) {
+          var label = dataset.labelText[i];
+          if (!label) return;
+          if (horizontal) {
+            var positive = bar.x >= bar.base;
+            ctx.textAlign = positive ? "left" : "right";
+            ctx.fillText(label, bar.x + (positive ? 5 : -5), bar.y);
+          } else {
+            ctx.textAlign = "center";
+            ctx.fillText(label, bar.x, bar.y - 8);
+          }
+        });
+      });
+      ctx.restore();
+    },
+  };
+  Chart.register(barValueLabelsPlugin);
+
   function kpiCard(label, value, sub, rag) {
     return '<div class="kpi-card' + (rag ? " rag-" + rag : "") + '"><div class="label">' + label + '</div>' +
       '<div class="value' + (rag ? " " + ragTextClass(rag) : "") + '">' + value + '</div>' +
@@ -576,7 +631,7 @@
   // ---- Section 1: Coverage Summary / Executive Overview ----
   function executiveOverviewHtml(cs, kind) {
     if (cs.status !== "ok") {
-      return '<div class="card"><h2>1. Coverage Summary &mdash; Executive Overview</h2>' +
+      return '<div class="card"><h2>📋 1. Coverage Summary &mdash; Executive Overview</h2>' +
         '<div class="placeholder-card"><div class="icon">📊</div>No coverage data available for this period.</div></div>';
     }
     var exe = cs.executive;
@@ -597,66 +652,21 @@
       kpiCard("Districts Requiring Intervention", exe.district_compliance.total_with_data ? (exe.district_compliance.warning + exe.district_compliance.poor) : "—",
         exe.district_compliance.total_with_data ? "of " + exe.district_compliance.total_with_data + " districts (FIC &lt; " + CFG.coverage_good + "%)" : "", "poor"),
     ];
-    return '<div class="card"><h2>1. Coverage Summary &mdash; Executive Overview</h2>' +
+    return '<div class="card"><h2>📋 1. Coverage Summary &mdash; Executive Overview</h2>' +
       '<div class="grid kpi-row">' + kpis.join("") + '</div>' +
       editableInsight("exec-" + kind, exe.insight) +
       '</div>';
   }
 
-  // ---- Section 2: UC Compliance Analysis ----
-  function ucComplianceHtml(cs, kind) {
-    if (cs.status !== "ok") return "";
-    var uc = cs.uc_compliance;
-    return '<div class="card"><h2>2. Union Council Compliance Analysis</h2>' +
-      '<p class="section-note">Immunization coverage bands: &ge;' + CFG.coverage_good + '% good, &ge;' + CFG.coverage_warning +
-        '% needs monitoring, below ' + CFG.coverage_warning + '% critical &mdash; shown per antigen across every Union Council for ' +
-        cs.executive.current_period_label + '.</p>' +
-      '<div class="chart-wrap tall"><canvas id="chart-compliance-dist"></canvas></div>' +
-      '<div class="grid two-col" style="margin-top:14px;">' +
-        '<div><h3>Top 5 Union Councils (by FIC coverage)</h3><div class="chart-wrap"><canvas id="chart-uc-top"></canvas></div></div>' +
-        '<div><h3>5 Union Councils requiring intervention (by FIC coverage)</h3><div class="chart-wrap"><canvas id="chart-uc-bottom"></canvas></div></div>' +
-      '</div>' +
-      editableInsight("compliance-" + kind, uc.insight) +
-    '</div>';
-  }
-
-  function renderUcComplianceChart(cs) {
-    destroyChart("complianceDist"); destroyChart("ucTop"); destroyChart("ucBottom");
-    if (cs.status !== "ok") return;
-    var byAntigen = cs.uc_compliance.by_antigen;
-    var labels = Object.keys(byAntigen);
-    charts.complianceDist = new Chart(document.getElementById("chart-compliance-dist"), {
-      type: "bar",
-      data: {
-        labels: labels,
-        datasets: [
-          { label: "Good (≥" + CFG.coverage_good + "%)", data: labels.map(function (l) { return byAntigen[l].good; }), backgroundColor: "#1e8e3e" },
-          { label: "Needs monitoring", data: labels.map(function (l) { return byAntigen[l].warning; }), backgroundColor: "#b06a00" },
-          { label: "Critical (<" + CFG.coverage_warning + "%)", data: labels.map(function (l) { return byAntigen[l].poor; }), backgroundColor: "#c5221f" },
-        ],
-      },
-      options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } },
-    });
-    var top = cs.uc_compliance.top_ucs, bottom = cs.uc_compliance.bottom_ucs;
-    charts.ucTop = new Chart(document.getElementById("chart-uc-top"), {
-      type: "bar",
-      data: { labels: top.map(function (r) { return r.uc_name + " (" + r.district + ")"; }),
-        datasets: [{ label: "FIC %", data: top.map(function (r) { return r.pct; }), backgroundColor: "#1e8e3e" }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } },
-    });
-    charts.ucBottom = new Chart(document.getElementById("chart-uc-bottom"), {
-      type: "bar",
-      data: { labels: bottom.map(function (r) { return r.uc_name + " (" + r.district + ")"; }),
-        datasets: [{ label: "FIC %", data: bottom.map(function (r) { return r.pct; }), backgroundColor: "#c5221f" }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } },
-    });
-  }
-
-  // ---- Section 3: Antigen-wise Coverage Analysis ----
+  // ---- Section 2: Antigen-wise Coverage Analysis ----
+  // Replaces the former UC Compliance Analysis section entirely -- this is
+  // now the one place a two-color pass/fail read of every antigen lives.
   function antigenAnalysisHtml(cs, kind) {
     if (cs.status !== "ok" || !cs.antigen_analysis.length) return "";
-    return '<div class="card"><h2>3. Antigen-wise Coverage Analysis</h2>' +
-      '<p class="section-note">Every antigen with a real target and vaccinated count in the source file (District/Tehsil level), ranked from strongest to weakest coverage.</p>' +
+    return '<div class="card"><h2>💉 2. Antigen-wise Coverage Analysis</h2>' +
+      '<p class="section-note">Every antigen with a real target and vaccinated count in the source file (District/Tehsil level), ranked strongest to weakest. ' +
+        '<span style="color:#1e8e3e;font-weight:700;">Green</span> = meets the ' + CFG.coverage_good + '% target coverage; ' +
+        '<span style="color:#c5221f;font-weight:700;">red</span> = below it.</p>' +
       '<div class="chart-wrap tall"><canvas id="chart-antigen-analysis"></canvas></div>' +
       editableInsight("antigen-" + kind, cs.antigen_insight) +
     '</div>';
@@ -666,15 +676,30 @@
     destroyChart("antigenAnalysis");
     if (cs.status !== "ok" || !cs.antigen_analysis.length) return;
     var rows = cs.antigen_analysis;
-    charts.antigenAnalysis = new Chart(document.getElementById("chart-antigen-analysis"), {
+    var canvas = document.getElementById("chart-antigen-analysis");
+    canvas.parentElement.style.height = Math.max(260, rows.length * 42) + "px";
+    charts.antigenAnalysis = new Chart(canvas, {
       type: "bar",
-      data: { labels: rows.map(function (r) { return r.antigen; }),
-        datasets: [{ label: "Coverage %", data: rows.map(function (r) { return r.pct; }), backgroundColor: rows.map(function (r) { return ragColor(r.rag); }) }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } },
+      data: {
+        labels: rows.map(function (r) { return r.antigen; }),
+        datasets: [{
+          label: "Coverage %", data: rows.map(function (r) { return r.pct; }),
+          backgroundColor: rows.map(function (r) { return targetMetColor(r.pct); }),
+          labelText: rows.map(function (r) {
+            return r.pct.toFixed(1) + "% (" + fmtNum(r.vaccinated) + " of " + fmtNum(r.target) + ")";
+          }),
+        }],
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 90 } },
+        plugins: { legend: { display: false } },
+        scales: { x: { max: 110 } },
+      },
     });
   }
 
-  // ---- Section 4: Target vs Coverage Analysis ----
+  // ---- Section 3: Target vs Coverage Analysis ----
   function targetGapHtml(cs, kind) {
     if (cs.status !== "ok") return "";
     var antigens = Object.keys(cs.target_gap.by_antigen);
@@ -682,8 +707,9 @@
     var options = antigens.map(function (a) {
       return '<option value="' + a + '"' + (a === state.gapAntigen ? " selected" : "") + '>' + a + '</option>';
     }).join("");
-    return '<div class="card"><h2>4. Target vs Coverage Analysis</h2>' +
-      '<p class="section-note">District level only &mdash; Union Councils have no raw target in the source file, so this analysis is not fabricated at UC level.</p>' +
+    return '<div class="card"><h2>🎯 3. Target vs Coverage Analysis</h2>' +
+      '<p class="section-note">District level only &mdash; Union Councils have no raw target in the source file, so this analysis is not fabricated at UC level. ' +
+        'Target population vs. children actually vaccinated, both from the uploaded workbook (never estimated from a percentage).</p>' +
       '<div class="controls-row"><label style="font-size:12.5px;">Antigen: </label><select class="filter-select" id="gap-antigen-select">' + options + '</select></div>' +
       '<h3>5 districts with the largest immunization gap (target &minus; vaccinated), ' + state.gapAntigen + '</h3>' +
       '<div class="chart-wrap tall"><canvas id="chart-target-gap"></canvas></div>' +
@@ -702,17 +728,48 @@
     destroyChart("targetGap");
     if (cs.status !== "ok") return;
     var rows = cs.target_gap.by_antigen[state.gapAntigen] || [];
-    charts.targetGap = new Chart(document.getElementById("chart-target-gap"), {
+    var canvas = document.getElementById("chart-target-gap");
+    canvas.parentElement.style.height = Math.max(280, rows.length * 70) + "px";
+    charts.targetGap = new Chart(canvas, {
       type: "bar",
-      data: { labels: rows.map(function (r) { return r.district; }),
-        datasets: [{ label: "Immunization gap (children)", data: rows.map(function (r) { return r.gap; }), backgroundColor: "#c5221f" }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
+      data: {
+        labels: rows.map(function (r) { return r.district; }),
+        datasets: [
+          {
+            label: "Target population", data: rows.map(function (r) { return r.target; }), backgroundColor: "#8aa4e0",
+            labelText: rows.map(function (r) { return "Target: " + fmtNum(r.target); }),
+          },
+          {
+            label: "Children vaccinated", data: rows.map(function (r) { return r.vaccinated; }), backgroundColor: "#1a3a7a",
+            labelText: rows.map(function (r) { return "Vaccinated: " + fmtNum(r.vaccinated) + " (" + r.pct_achievement.toFixed(1) + "%)"; }),
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 150 } },
+        plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
+      },
     });
     var sel = document.getElementById("gap-antigen-select");
     if (sel) sel.addEventListener("change", function (e) { state.gapAntigen = e.target.value; renderTargetGapSection(cs, kind); });
   }
 
-  // ---- Section 5: Dropout Analysis ----
+  // ---- Section 4: Dropout Analysis ----
+  // Uses the source Excel's own explicit Drop Out figure (District sheet) --
+  // see build_dropout_analysis's docstring. No formula is shown here; the
+  // dashboard displays results, not the calculation behind them.
+  function dropoutDistrictListHtml(title, rows, tone) {
+    var rowsHtml = rows.map(function (r, i) {
+      return '<div class="dropout-row">' +
+        '<span class="dropout-rank">' + (i + 1) + '</span>' +
+        '<span class="dropout-district">' + escHtml(r.district) + '</span>' +
+        '<span class="dropout-pct ' + (tone === "bad" ? "rag-poor-text" : "rag-good-text") + '">' + fmtPct(r.dropout_pct) + '</span>' +
+      '</div>';
+    }).join("");
+    return '<div><h3>' + (tone === "bad" ? "🔻" : "🔺") + ' ' + title + '</h3>' + (rowsHtml || '<p class="section-note">No data.</p>') + '</div>';
+  }
+
   function dropoutAnalysisHtml(cs, kind) {
     if (cs.status !== "ok") return "";
     var d = cs.dropout;
@@ -720,43 +777,25 @@
       kpiCard("Districts with Negative Dropout", fmtNum(d.negative_dropout_districts), "Penta3 > Penta1 (data error, kept and flagged)"),
       kpiCard("UCs with Negative Dropout", fmtNum(d.negative_dropout_ucs), "Penta3 > Penta1 (data error, kept and flagged)"),
     ];
-    return '<div class="card"><h2>5. Dropout Analysis</h2>' +
-      '<p class="section-note">' + d.formula + '</p>' +
+    return '<div class="card"><h2>📉 4. Dropout Analysis</h2>' +
+      '<p class="section-note">Penta1 &rarr; Penta3 dropout, as reported in the source workbook\'s own Drop Out column.</p>' +
       '<div class="grid kpi-row">' + kpis.join("") + '</div>' +
       '<div class="grid two-col" style="margin-top:14px;">' +
-        '<div><h3>5 districts with highest Penta1&rarr;Penta3 dropout</h3><div class="chart-wrap"><canvas id="chart-dropout-districts"></canvas></div></div>' +
-        '<div><h3>5 Union Councils with highest Penta1&rarr;Penta3 dropout</h3><div class="chart-wrap"><canvas id="chart-dropout-ucs"></canvas></div></div>' +
+        dropoutDistrictListHtml("Top 5 Highest Dropout Districts", d.highest_districts, "bad") +
+        dropoutDistrictListHtml("Top 5 Lowest Dropout Districts", d.lowest_districts, "good") +
       '</div>' +
       editableInsight("dropout-" + kind, d.insight) +
     '</div>';
   }
 
-  function renderDropoutChart(cs) {
-    destroyChart("dropoutDistricts"); destroyChart("dropoutUcs");
-    if (cs.status !== "ok") return;
-    var distRows = cs.dropout.worst_districts, ucRows = cs.dropout.worst_ucs;
-    charts.dropoutDistricts = new Chart(document.getElementById("chart-dropout-districts"), {
-      type: "bar",
-      data: { labels: distRows.map(function (r) { return r.district; }),
-        datasets: [{ label: "Dropout %", data: distRows.map(function (r) { return r.dropout_pct; }), backgroundColor: "#c5221f" }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-    });
-    charts.dropoutUcs = new Chart(document.getElementById("chart-dropout-ucs"), {
-      type: "bar",
-      data: { labels: ucRows.map(function (r) { return r.uc_name + " (" + r.district + ")"; }),
-        datasets: [{ label: "Dropout %", data: ucRows.map(function (r) { return r.dropout_pct; }), backgroundColor: "#c5221f" }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-    });
-  }
-
-  // ---- Section 6: Trends and Key Insights ----
+  // ---- Section 5: Trends and Key Insights ----
   function trendsHtml(cs, kind) {
     if (cs.status !== "ok") return "";
     var t = cs.trends;
     if (t.status === "insufficient_history") {
-      return '<div class="card"><h2>6. Trends and Key Insights</h2><div class="placeholder-card"><div class="icon">📈</div>' + t.message + '</div></div>';
+      return '<div class="card"><h2>📈 5. Trends and Key Insights</h2><div class="placeholder-card"><div class="icon">📈</div>' + t.message + '</div></div>';
     }
-    return '<div class="card"><h2>6. Trends and Key Insights</h2>' +
+    return '<div class="card"><h2>📈 5. Trends and Key Insights</h2>' +
       '<p class="section-note">' + t.prior_label + ' &rarr; ' + t.latest_label + ', province-wide.</p>' +
       '<div class="chart-wrap"><canvas id="chart-trends"></canvas></div>' +
       editableInsight("trends-" + kind, t.insight) +
@@ -816,7 +855,6 @@
     el.innerHTML = pillsHtml +
       executiveOverviewHtml(cs, kind) +
       antigenMapsGridHtml(cs, kind) +
-      ucComplianceHtml(cs, kind) +
       antigenAnalysisHtml(cs, kind) +
       '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
       dropoutAnalysisHtml(cs, kind) +
@@ -833,10 +871,8 @@
     });
 
     renderAntigenMapsGrid(cs, kind);
-    renderUcComplianceChart(cs);
     renderAntigenAnalysisChart(cs);
     renderTargetGapChart(cs, kind);
-    renderDropoutChart(cs);
     renderTrendsChart(cs);
     renderCoverageExplorer();
     wireEditableInsights(el);

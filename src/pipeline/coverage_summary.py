@@ -262,10 +262,13 @@ def _antigen_insight(rows: list[dict]) -> str:
         f"({best['vaccinated']:,} of {best['target']:,} children vaccinated), while {worst['antigen']} "
         f"has the lowest at {worst['pct']:.1f}%."
     ]
-    critical = [r["antigen"] for r in valid if r["rag"] == "poor"]
-    if critical:
-        verb = "is" if len(critical) == 1 else "are"
-        parts.append(f"{', '.join(critical)} {verb} in the critical coverage band and need urgent attention.")
+    # Matches the chart's own two-color logic (green/red split at
+    # COVERAGE_GOOD) rather than the three-band RAG used elsewhere, so the
+    # insight text never contradicts what the chart is showing.
+    below_target = [r["antigen"] for r in valid if r["pct"] < COVERAGE_GOOD]
+    if below_target:
+        verb = "is" if len(below_target) == 1 else "are"
+        parts.append(f"{', '.join(below_target)} {verb} below the {COVERAGE_GOOD}% target and need attention.")
     return " ".join(parts)
 
 
@@ -303,29 +306,37 @@ def build_target_gap(district_all: pd.DataFrame, period_id: str) -> dict:
 
 
 def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, period_id: str) -> dict:
+    """District-level Penta1->Penta3 dropout, ranked highest and lowest.
+
+    This is the Excel's own explicit dropout figure, not a derived one -- the
+    District sheet has its own "Drop Out" column (indicators.penta_dropout_pct
+    cross-checks it against Penta1#/Penta3# but the value shown here, like
+    everywhere else in this pipeline, is what the sheet itself reports).
+    """
     districts = _district_rows(district_all, period_id)
     uc_period = uc_all[uc_all["period_id"] == period_id]
 
-    district_ranked = districts[districts["dropout_pct_reported"].notna()].sort_values(
-        "dropout_pct_reported", ascending=False
-    ).head(5)
-    uc_ranked = uc_period[uc_period["dropout_pct"].notna()].sort_values(
-        "dropout_pct", ascending=False
-    ).head(5)
+    valid = districts[districts["dropout_pct_reported"].notna()]
+    highest = valid.sort_values("dropout_pct_reported", ascending=False).head(5)
+    # A negative dropout is a data-entry artifact (Penta3# > Penta1#, flagged
+    # as is_negative_dropout elsewhere), not a genuine best performer --
+    # excluded from "lowest" only, same principle already used to keep
+    # outlier values out of every other "best" pick in this module.
+    lowest_valid = valid[~valid["is_negative_dropout"]]
+    lowest = lowest_valid.sort_values("dropout_pct_reported", ascending=True).head(5)
 
     insight_parts = []
-    if not district_ranked.empty:
-        top_d = district_ranked.iloc[0]
+    if not highest.empty:
+        top_d = highest.iloc[0]
         insight_parts.append(
-            f"{top_d['district']} has the highest Penta1-to-Penta3 dropout rate at "
+            f"{top_d['district']} has the highest Penta1-to-Penta3 dropout at "
             f"{top_d['dropout_pct_reported']:.1f}%, meaning many children who started the Penta series "
             f"did not complete it."
         )
-    if not uc_ranked.empty:
-        top_u = uc_ranked.iloc[0]
+    if not lowest.empty:
+        best_d = lowest.iloc[0]
         insight_parts.append(
-            f"At Union Council level, {top_u['uc_name']} ({top_u['district']}) has the highest dropout, "
-            f"at {top_u['dropout_pct']:.1f}%."
+            f"{best_d['district']} has the lowest dropout at {best_d['dropout_pct_reported']:.1f}%."
         )
     neg_d = int(districts["is_negative_dropout"].sum())
     neg_u = int(uc_period["is_negative_dropout"].fillna(False).sum())
@@ -337,18 +348,15 @@ def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, per
 
     return {
         "period_id": period_id,
-        "formula": "Penta1 -> Penta3 dropout = (Penta1# - Penta3#) / Penta1# x 100. "
-                   "No other antigen pair in this dataset shares a common target denominator "
-                   "with its earlier dose, so no other dropout indicator is computed.",
         "negative_dropout_districts": neg_d,
         "negative_dropout_ucs": neg_u,
-        "worst_districts": [
+        "highest_districts": [
             {"district": r["district"], "dropout_pct": _r(r["dropout_pct_reported"])}
-            for _, r in district_ranked.iterrows()
+            for _, r in highest.iterrows()
         ],
-        "worst_ucs": [
-            {"uc_name": r["uc_name"], "district": r["district"], "dropout_pct": _r(r["dropout_pct"])}
-            for _, r in uc_ranked.iterrows()
+        "lowest_districts": [
+            {"district": r["district"], "dropout_pct": _r(r["dropout_pct_reported"])}
+            for _, r in lowest.iterrows()
         ],
         "insight": " ".join(insight_parts) or "Not enough dropout data this period to generate an insight.",
     }

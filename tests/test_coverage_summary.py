@@ -151,12 +151,23 @@ def test_target_gap_has_no_opv_pcv_rota_since_no_target_exists_at_district_level
     }
 
 
-def test_dropout_analysis_formula_is_penta1_to_penta3_only(district_and_uc):
+def test_dropout_analysis_has_highest_and_lowest_district_lists(district_and_uc):
     district_all, uc_all = district_and_uc
     dropout = build_dropout_analysis(district_all, uc_all, "2025-12")
-    assert "Penta1" in dropout["formula"] and "Penta3" in dropout["formula"]
     assert dropout["negative_dropout_districts"] >= 0
-    assert len(dropout["worst_districts"]) > 0
+    assert 0 < len(dropout["highest_districts"]) <= 5
+    assert 0 < len(dropout["lowest_districts"]) <= 5
+    # Highest-ranked district must actually have a higher (or equal)
+    # dropout than the lowest-ranked one -- sanity check on sort direction.
+    assert dropout["highest_districts"][0]["dropout_pct"] >= dropout["lowest_districts"][0]["dropout_pct"]
+
+
+def test_dropout_lowest_excludes_negative_dropout_data_artifacts(district_and_uc):
+    district_all, uc_all = district_and_uc
+    dropout = build_dropout_analysis(district_all, uc_all, "2025-12")
+    # A negative dropout is a data-entry error (Penta3# > Penta1#), never a
+    # genuine best performer -- must never appear in the "lowest" ranking.
+    assert all(d["dropout_pct"] >= 0 for d in dropout["lowest_districts"])
 
 
 def test_uc_compliance_covers_wider_antigen_set_than_district(district_and_uc):
