@@ -160,6 +160,25 @@
   .expand-row td { background: #fafbfe; padding: 10px 14px; }
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
   .mini-grid div { padding: 4px 6px; background: #fff; border-radius: 4px; border: 1px solid var(--border); }
+  .callout-inline { font-size: 12px; font-weight: 600; color: var(--navy); text-transform: none; letter-spacing: normal; }
+  .alert-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .alert-pills .badge { font-size: 11.5px; padding: 3px 9px; }
+  .anomaly-box {
+    margin-top: 12px; padding: 10px 14px; background: var(--poor-bg); border: 1px solid var(--poor);
+    border-radius: 6px;
+  }
+  .anomaly-box h3 { margin: 0 0 4px 0; color: var(--poor); font-size: 13px; }
+  .anomaly-box p { margin: 0 0 8px 0; font-size: 12px; color: var(--text-dim); }
+  .completeness-list { display: flex; flex-direction: column; gap: 6px; }
+  .completeness-row { display: grid; grid-template-columns: 190px 1fr 46px; align-items: center; gap: 8px; font-size: 12px; }
+  .completeness-label { color: var(--text-dim); }
+  .completeness-bar-track { background: #eef1f7; border-radius: 4px; height: 12px; overflow: hidden; }
+  .completeness-bar-fill { height: 100%; border-radius: 4px; }
+  .completeness-pct { text-align: right; font-weight: 600; }
+  .discordance-table th, .discordance-table td { text-align: center; }
+  .discordance-table th:first-child, .discordance-table td:first-child { text-align: left; }
+  .discordant-cell { background: var(--poor-bg); color: var(--poor); font-weight: 700; }
+  .error-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
   footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
   button.export-btn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35);
@@ -1007,6 +1026,7 @@
     return '<div class="kpi-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
       (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
   }
+  function priorityBadgeClass(p) { return p === "Critical" ? "poor" : p === "Action" ? "warning" : "neutral"; }
 
   function renderSurveillance() {
     var el = document.getElementById("tab-surveillance");
@@ -1017,12 +1037,18 @@
       return;
     }
     var msl = v.msl, diph = v.diphtheria, pert = v.pertussis, nnt = v.nnt;
+    var dq = msl.data_quality;
 
+    // ---- Surveillance KPI row ----
     var mslKpis = [
       diseaseKpiCard("Suspected (YTD)", fmtNum(msl.suspected_ytd), "Weeks 1-" + v.latest_epi_week),
       diseaseKpiCard("Suspected (latest week)", fmtNum(msl.suspected_latest_week), "Epi week " + v.latest_epi_week),
+      diseaseKpiCard("Measles confirmed (YTD)", fmtNum(msl.classification_breakdown["Laboratory Confirmed Measles"] || 0) , ""),
+      diseaseKpiCard("Rubella confirmed (YTD)", fmtNum((msl.classification_breakdown["Laboratory Confirmed Measles and Rubella"] || 0) + (msl.classification_breakdown["Clinically Compatible Rubella"] || 0)), "incl. double infection"),
       diseaseKpiCard("Sample collection rate", fmtPct(msl.sample_collection_rate_pct), ""),
       diseaseKpiCard("Sample adequacy rate", fmtPct(msl.sample_adequacy_rate_pct), "of collected samples"),
+      diseaseKpiCard("Reporting HFs", fmtNum(msl.reporting_footprint.reporting_health_facilities), ""),
+      diseaseKpiCard("Reporting UCs", fmtNum(msl.reporting_footprint.reporting_ucs), "of " + msl.reporting_footprint.reporting_districts + " districts"),
     ].join("");
 
     var classRows = Object.keys(msl.classification_breakdown).sort(function (a, b) {
@@ -1031,11 +1057,76 @@
       return "<tr><td>" + k + "</td><td>" + fmtNum(msl.classification_breakdown[k]) + "</td></tr>";
     }).join("");
 
+    // ---- Population profile: age "% under 5" callout ----
+    var under5 = (msl.age_distribution["0-8m"] || 0) + (msl.age_distribution["9-23m"] || 0) + (msl.age_distribution["24-59m"] || 0);
+    var ageTotal = Object.keys(msl.age_distribution).reduce(function (s, k) { return s + msl.age_distribution[k]; }, 0);
+    var pctUnder5 = ageTotal ? (under5 / ageTotal * 100) : null;
+
+    // ---- Vaccination-status callout: % unvaccinated or partial among eligible suspected ----
+    var doseElig = msl.dose_status_suspected;
+    var doseEligTotal = Object.keys(doseElig).reduce(function (s, k) { return s + doseElig[k]; }, 0);
+    var pctUnvaxOrPartial = doseEligTotal ? (((doseElig["Zero dose"] || 0) + (doseElig["1 dose"] || 0)) / doseEligTotal * 100) : null;
+
+    // ---- Anomaly box: under-eligible-age cases with a dose recorded ----
+    var anomaly = dq.under_age_vaccinated_anomaly;
+    var anomalyRows = anomaly.by_district.map(function (r) {
+      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>";
+    }).join("");
+
+    // ---- Priority alert pills ----
+    var alertPills = [
+      dq.duplicate_epid.duplicate_epid_count > 0 ? '<span class="badge poor">' + dq.duplicate_epid.duplicate_epid_count + ' duplicate Epid numbers</span>' : "",
+      anomaly.anomaly_count > 0 ? '<span class="badge poor">' + anomaly.anomaly_count + ' under-9m cases with a dose recorded</span>' : "",
+      dq.classification_discordance.flagged_count > 0 ? '<span class="badge warning">' + dq.classification_discordance.flagged_count + ' discordant lab/classification results</span>' : "",
+      dq.timeliness.negative_delay_count > 0 ? '<span class="badge warning">' + dq.timeliness.negative_delay_count + ' notified before rash onset (date error)</span>' : "",
+      dq.lab_confirmed_dose_validation.two_dose_count > 0 ? '<span class="badge neutral">' + dq.lab_confirmed_dose_validation.two_dose_count + ' lab-confirmed cases with 2 prior doses (needs field validation)</span>' : "",
+    ].filter(Boolean).join(" ");
+
+    // ---- Missing-data field-completeness bars ----
+    var completenessRows = dq.field_completeness.map(function (r) {
+      var color = r.pct_complete >= 80 ? "#1e8e3e" : r.pct_complete >= 50 ? "#b06a00" : "#c5221f";
+      return '<div class="completeness-row"><div class="completeness-label">' + escHtml(r.field) + '</div>' +
+        '<div class="completeness-bar-track"><div class="completeness-bar-fill" style="width:' + r.pct_complete.toFixed(1) + '%;background:' + color + ';"></div></div>' +
+        '<div class="completeness-pct">' + fmtPct(r.pct_complete) + '</div></div>';
+    }).join("");
+
+    // ---- Classification discordance 3x3 matrix ----
+    var discordCols = ["Confirmed", "Discarded", "Pending", "Other (Clinically Compatible etc.)"];
+    var discordRowsLabels = ["Positive", "Negative", "Missing/Not Done"];
+    var cellByKey = {};
+    dq.classification_discordance.cells.forEach(function (c) { cellByKey[c.lab_result + "|" + c.classification] = c; });
+    var discordHead = "<tr><th>Lab result \\ Classification</th>" + discordCols.map(function (c) { return "<th>" + c + "</th>"; }).join("") + "</tr>";
+    var discordBody = discordRowsLabels.map(function (lr) {
+      return "<tr><td><strong>" + lr + "</strong></td>" + discordCols.map(function (c) {
+        var cell = cellByKey[lr + "|" + c];
+        var cls = cell.flagged ? ' class="discordant-cell"' : "";
+        return "<td" + cls + ">" + fmtNum(cell.count) + (cell.flagged ? " ⚠" : "") + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+
+    // ---- Timeliness ----
+    var tOrder = ["<=48h", "3-7 days", ">7 days"];
+
+    // ---- Errors & inconsistencies narrative ----
+    var errorList = [
+      dq.duplicate_epid.duplicate_epid_count + " Epid number(s) appear on more than one row (" + dq.duplicate_epid.duplicate_row_count + " rows total) -- likely duplicate reporting.",
+      anomaly.anomaly_count + " case(s) under 9 months old (not yet MCV1-eligible) have a vaccine dose recorded -- worth field verification.",
+      dq.classification_discordance.flagged_count + " case(s) have a lab result that doesn't match their final classification (positive result marked Discarded, or negative result marked Confirmed).",
+      dq.timeliness.negative_delay_count + " case(s) show a notification date before the recorded rash-onset date -- a date-entry error.",
+      dq.lab_confirmed_dose_validation.two_dose_count + " lab-confirmed case(s) had 2 prior vaccine doses recorded, and " + dq.lab_confirmed_dose_validation.one_dose_count + " had 1 -- MCV is highly effective, so these merit field validation rather than being taken at face value.",
+    ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
+
     var districtRowsHtml = msl.district_breakdown.slice().sort(function (a, b) { return b.suspected - a.suspected; })
       .map(function (r) {
         return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.measles_confirmed) +
           "</td><td>" + fmtNum(r.rubella_confirmed) + "</td></tr>";
       }).join("");
+
+    // ---- Districts requiring action ----
+    var actionRows = msl.district_action_priority.map(function (r) {
+      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.confirmed) +
+        "</td><td>" + fmtNum(r.data_quality_issues) + "</td><td><span class=\"badge " + priorityBadgeClass(r.priority) + "\">" + r.priority + "</span></td></tr>";
+    }).join("");
 
     var diphKpis = [
       diseaseKpiCard("Cases (YTD)", fmtNum(diph.ytd.case_count), diph.ytd.districts_affected + " districts affected"),
@@ -1055,18 +1146,74 @@
     var nntRowsHtml = nnt.by_district_ytd.slice().sort(function (a, b) { return b.case_count - a.case_count; })
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
 
+    var mslInsightId = "vpd-msl-summary-" + v.latest_epi_week;
+    var mslAutoInsight = "Week " + v.latest_epi_week + ": " + fmtNum(msl.suspected_latest_week) + " suspected case(s) reported this week, " +
+      fmtNum(msl.suspected_ytd) + " cumulative since week 1. " + fmtNum(dq.duplicate_epid.duplicate_epid_count) + " duplicate Epid number(s) and " +
+      fmtNum(anomaly.anomaly_count) + " under-9m vaccinated-anomaly case(s) need follow-up.";
+
     el.innerHTML =
       '<div class="card"><h2><span class="disease-tag" style="background:var(--measles);"></span>Measles &amp; Rubella (weeks 1-' + v.latest_epi_week + ', 2026)</h2>' +
         '<div class="grid kpi-row">' + mslKpis + '</div>' +
+        editableInsight(mslInsightId, mslAutoInsight) +
+      '</div>' +
+
+      '<div class="card"><h2>Epidemiological Trends</h2>' +
+        '<h3>Daily epi curve (by rash onset date, with 7-day rolling average)</h3>' +
+        '<div class="chart-wrap tall"><canvas id="chart-msl-daily"></canvas></div>' +
         '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-msl-trend"></canvas></div>' +
         '<div class="grid two-col" style="margin-top:10px;">' +
-          '<div><h3>Final classification</h3><div class="table-scroll"><table><thead><tr><th>Classification</th><th>Count</th></tr></thead><tbody>' + classRows + '</tbody></table></div></div>' +
-          '<div><h3>Age distribution</h3><div class="chart-wrap"><canvas id="chart-msl-age"></canvas></div></div>' +
+          '<div><h3>Final classification</h3><div class="chart-wrap"><canvas id="chart-msl-classification"></canvas></div></div>' +
+          '<div><h3>Outcomes</h3><div class="chart-wrap"><canvas id="chart-msl-outcome"></canvas></div></div>' +
         '</div>' +
-        '<h3>MCV dose status</h3><div class="chart-wrap"><canvas id="chart-msl-dose"></canvas></div>' +
-        '<h3>District-wise (suspected / measles-confirmed / rubella-confirmed)</h3>' +
-        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Measles confirmed</th><th>Rubella confirmed</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div>' +
+        '<h3 style="margin-top:10px;">Complications</h3><div class="chart-wrap"><canvas id="chart-msl-complications"></canvas></div>' +
       '</div>' +
+
+      '<div class="card"><h2>Population Profile</h2>' +
+        '<h3>Top districts by suspected case load</h3><div class="chart-wrap tall"><canvas id="chart-msl-top-districts"></canvas></div>' +
+        '<div class="grid two-col" style="margin-top:10px;">' +
+          '<div><h3>Age distribution ' + (pctUnder5 !== null ? '<span class="callout-inline">(' + fmtPct(pctUnder5) + ' under 5 years)</span>' : '') + '</h3>' +
+            '<div class="chart-wrap"><canvas id="chart-msl-age"></canvas></div></div>' +
+          '<div><h3>Sex distribution</h3><div class="chart-wrap"><canvas id="chart-msl-sex"></canvas></div></div>' +
+        '</div>' +
+        (anomaly.anomaly_count > 0 ?
+          '<div class="anomaly-box"><h3>⚠ Anomaly: under-9-month cases with a vaccine dose recorded</h3>' +
+          '<p>' + anomaly.anomaly_count + ' of ' + anomaly.under_age_case_count + ' suspected cases under 9 months old (not yet MCV1-eligible) have a dose count &gt; 0 -- ' +
+          'a likely age or dose data-entry error, flagged here for field verification rather than corrected silently.</p>' +
+          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Case count</th></tr></thead><tbody>' + anomalyRows + '</tbody></table></div></div>' : '') +
+        '<h3 style="margin-top:12px;">MCV dose status ' + (pctUnvaxOrPartial !== null ? '<span class="callout-inline">(' + fmtPct(pctUnvaxOrPartial) + ' unvaccinated or partial among eligible)</span>' : '') + '</h3>' +
+        '<div class="chart-wrap"><canvas id="chart-msl-dose"></canvas></div>' +
+      '</div>' +
+
+      '<div class="card"><h2>Data Quality Status</h2>' +
+        (alertPills ? '<div class="alert-pills">' + alertPills + '</div>' : '<div class="badge good">No priority data-quality alerts</div>') +
+        '<h3 style="margin-top:12px;">Field completeness (% of suspected cases with a value recorded)</h3>' +
+        '<div class="completeness-list">' + completenessRows + '</div>' +
+        '<h3 style="margin-top:12px;">Classification discordance (lab result vs. final classification)</h3>' +
+        '<div class="table-scroll"><table class="discordance-table"><thead>' + discordHead + '</thead><tbody>' + discordBody + '</tbody></table></div>' +
+        '<h3 style="margin-top:12px;">Errors &amp; inconsistencies</h3><ul class="error-list">' + errorList + '</ul>' +
+      '</div>' +
+
+      '<div class="card"><h2>Vaccination History Validation</h2>' +
+        '<div class="grid kpi-row">' +
+          diseaseKpiCard("Lab-confirmed cases", fmtNum(dq.lab_confirmed_dose_validation.confirmed_case_count), "") +
+          diseaseKpiCard("...with 2 prior doses", fmtNum(dq.lab_confirmed_dose_validation.two_dose_count), "needs field validation") +
+          diseaseKpiCard("...with 1 prior dose", fmtNum(dq.lab_confirmed_dose_validation.one_dose_count), "needs field validation") +
+        '</div>' +
+        '<h3>Top districts, lab-confirmed cases with 2 prior doses</h3><div class="chart-wrap"><canvas id="chart-msl-2dose-districts"></canvas></div>' +
+      '</div>' +
+
+      '<div class="card"><h2>Timeliness (rash onset &rarr; notification)</h2>' +
+        '<div class="chart-wrap"><canvas id="chart-msl-timeliness"></canvas></div>' +
+        (dq.timeliness.negative_delay_count > 0 ? '<p class="sub">' + dq.timeliness.negative_delay_count + ' case(s) excluded: notification date recorded before rash onset date.</p>' : '') +
+      '</div>' +
+
+      '<h3>District-wise (suspected / measles-confirmed / rubella-confirmed)</h3>' +
+      '<div class="card"><div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Measles confirmed</th><th>Rubella confirmed</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div></div>' +
+
+      '<div class="card"><h2>Districts Requiring Action</h2>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Confirmed</th><th>Data quality issues</th><th>Priority</th></tr></thead><tbody>' + actionRows + '</tbody></table></div>' +
+      '</div>' +
+
       '<div class="card"><h2><span class="disease-tag" style="background:var(--diphtheria);"></span>Diphtheria</h2>' +
         '<div class="grid kpi-row">' + diphKpis + '</div>' +
         '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-diph-trend"></canvas></div>' +
@@ -1080,7 +1227,39 @@
       '</div>' +
       '<div class="card"><h2>AFP Surveillance</h2><div class="placeholder-card"><div class="icon">⏳</div>' + v.afp.message + '</div></div>';
 
-    destroyChart("mslTrend"); destroyChart("mslAge"); destroyChart("mslDose"); destroyChart("diphTrend");
+    wireEditableInsights(el);
+
+    destroyChart("mslDaily"); destroyChart("mslTrend"); destroyChart("mslClassification"); destroyChart("mslOutcome");
+    destroyChart("mslComplications"); destroyChart("mslTopDistricts"); destroyChart("mslAge"); destroyChart("mslSex");
+    destroyChart("mslDose"); destroyChart("msl2doseDistricts"); destroyChart("mslTimeliness"); destroyChart("diphTrend");
+
+    // ---- Daily epi curve: bars = daily case count, line = 7-day rolling avg,
+    // with the peak day and the latest day permanently labelled (PDF-friendly). ----
+    var curve = msl.daily_epi_curve;
+    var peakIdx = 0;
+    curve.forEach(function (r, i) { if (r.case_count > curve[peakIdx].case_count) peakIdx = i; });
+    var lastIdx = curve.length - 1;
+    var curveLabelText = curve.map(function (r, i) {
+      if (i === peakIdx) return "Peak: " + r.case_count;
+      if (i === lastIdx) return "Latest: " + r.case_count;
+      return null;
+    });
+    charts.mslDaily = new Chart(document.getElementById("chart-msl-daily"), {
+      data: {
+        labels: curve.map(function (r) { return r.onset_day; }),
+        datasets: [
+          { type: "bar", label: "Daily suspected cases", data: curve.map(function (r) { return r.case_count; }),
+            backgroundColor: "#94a3c4", labelText: curveLabelText },
+          { type: "line", label: "7-day rolling average", data: curve.map(function (r) { return r.rolling_7d_avg; }),
+            borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.25, pointRadius: 0, borderWidth: 2 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { ticks: { maxTicksLimit: 12, autoSkip: true } } },
+      }
+    });
 
     var trend = msl.weekly_trend;
     charts.mslTrend = new Chart(document.getElementById("chart-msl-trend"), {
@@ -1099,8 +1278,9 @@
     var ageOrder = ["0-8m", "9-23m", "24-59m", "60m+"];
     charts.mslAge = new Chart(document.getElementById("chart-msl-age"), {
       type: "bar",
-      data: { labels: ageOrder, datasets: [{ label: "Suspected cases", data: ageOrder.map(function (k) { return msl.age_distribution[k] || 0; }), backgroundColor: "#1a5fb4" }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      data: { labels: ageOrder, datasets: [{ label: "Suspected cases", data: ageOrder.map(function (k) { return msl.age_distribution[k] || 0; }),
+        backgroundColor: "#1a5fb4", labelText: ageOrder.map(function (k) { return fmtNum(msl.age_distribution[k] || 0); }) }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
     });
 
     var doseOrder = ["Zero dose", "1 dose", "2 doses", "Unknown"];
@@ -1109,12 +1289,100 @@
       data: {
         labels: doseOrder,
         datasets: [
-          { label: "Suspected", data: doseOrder.map(function (k) { return msl.dose_status_suspected[k] || 0; }), backgroundColor: "#94a3c4" },
-          { label: "Confirmed measles", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_measles[k] || 0; }), backgroundColor: "#c5221f" },
-          { label: "Confirmed rubella", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_rubella[k] || 0; }), backgroundColor: "#b06a00" },
+          { label: "Suspected", data: doseOrder.map(function (k) { return msl.dose_status_suspected[k] || 0; }), backgroundColor: "#94a3c4",
+            labelText: doseOrder.map(function (k) { return fmtNum(msl.dose_status_suspected[k] || 0); }) },
+          { label: "Confirmed measles", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_measles[k] || 0; }), backgroundColor: "#c5221f",
+            labelText: doseOrder.map(function (k) { return fmtNum(msl.dose_status_confirmed_measles[k] || 0); }) },
+          { label: "Confirmed rubella", data: doseOrder.map(function (k) { return msl.dose_status_confirmed_rubella[k] || 0; }), backgroundColor: "#b06a00",
+            labelText: doseOrder.map(function (k) { return fmtNum(msl.dose_status_confirmed_rubella[k] || 0); }) },
         ]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, scales: { y: { grace: "15%" } } }
+    });
+
+    var classKeys = Object.keys(msl.classification_breakdown).sort(function (a, b) {
+      return msl.classification_breakdown[b] - msl.classification_breakdown[a];
+    });
+    charts.mslClassification = new Chart(document.getElementById("chart-msl-classification"), {
+      type: "bar",
+      data: {
+        labels: classKeys,
+        datasets: [{ label: "Cases", data: classKeys.map(function (k) { return msl.classification_breakdown[k]; }),
+          backgroundColor: "#1a5fb4", labelText: classKeys.map(function (k) { return fmtNum(msl.classification_breakdown[k]); }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { grace: "15%" } } }
+    });
+
+    var outcomeKeys = Object.keys(msl.outcome_breakdown).sort(function (a, b) { return msl.outcome_breakdown[b] - msl.outcome_breakdown[a]; });
+    charts.mslOutcome = new Chart(document.getElementById("chart-msl-outcome"), {
+      type: "bar",
+      data: {
+        labels: outcomeKeys,
+        datasets: [{ label: "Cases", data: outcomeKeys.map(function (k) { return msl.outcome_breakdown[k]; }),
+          backgroundColor: "#7d3c98", labelText: outcomeKeys.map(function (k) { return fmtNum(msl.outcome_breakdown[k]); }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { grace: "15%" } } }
+    });
+
+    var compKeys = Object.keys(msl.complications_breakdown);
+    charts.mslComplications = new Chart(document.getElementById("chart-msl-complications"), {
+      type: "bar",
+      data: {
+        labels: compKeys,
+        datasets: [{ label: "Cases", data: compKeys.map(function (k) { return msl.complications_breakdown[k]; }),
+          backgroundColor: "#d97706", labelText: compKeys.map(function (k) { return fmtNum(msl.complications_breakdown[k]); }) }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { y: { grace: "15%" } } }
+    });
+
+    var topD = msl.top_districts;
+    charts.mslTopDistricts = new Chart(document.getElementById("chart-msl-top-districts"), {
+      type: "bar",
+      data: {
+        labels: topD.map(function (r) { return r.district; }),
+        datasets: [{ label: "Suspected cases", data: topD.map(function (r) { return r.suspected; }),
+          backgroundColor: "#1a3a7a", labelText: topD.map(function (r) { return fmtNum(r.suspected); }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { grace: "15%" } } }
+    });
+
+    var sexKeys = Object.keys(msl.sex_breakdown);
+    charts.mslSex = new Chart(document.getElementById("chart-msl-sex"), {
+      type: "doughnut",
+      data: {
+        labels: sexKeys,
+        datasets: [{ data: sexKeys.map(function (k) { return msl.sex_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#c5221f", "#9aa0a6"] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" },
+        tooltip: { enabled: true } } }
+    });
+
+    var top2dose = dq.lab_confirmed_dose_validation.top_districts_two_dose;
+    charts.msl2doseDistricts = new Chart(document.getElementById("chart-msl-2dose-districts"), {
+      type: "bar",
+      data: {
+        labels: top2dose.map(function (r) { return r.district; }),
+        datasets: [{ label: "2-dose lab-confirmed cases", data: top2dose.map(function (r) { return r.case_count; }),
+          backgroundColor: "#b06a00", labelText: top2dose.map(function (r) { return fmtNum(r.case_count); }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { grace: "15%" } } }
+    });
+
+    var tBuckets = dq.timeliness.buckets;
+    charts.mslTimeliness = new Chart(document.getElementById("chart-msl-timeliness"), {
+      type: "bar",
+      data: {
+        labels: tOrder,
+        datasets: [{ label: "Cases", data: tOrder.map(function (k) { return tBuckets[k] || 0; }),
+          backgroundColor: ["#1e8e3e", "#b06a00", "#c5221f"], labelText: tOrder.map(function (k) { return fmtNum(tBuckets[k] || 0); }) }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { y: { grace: "15%" } } }
     });
 
     var dtrend = diph.weekly_trend;
