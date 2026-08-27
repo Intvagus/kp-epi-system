@@ -156,18 +156,6 @@
     text-transform: uppercase; letter-spacing: .03em;
   }
   .mini-map-card .map-wrap svg { width: 100%; height: auto; display: block; }
-  .dropout-row {
-    display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border);
-    font-size: 13px;
-  }
-  .dropout-row:last-child { border-bottom: none; }
-  .dropout-rank {
-    display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-    border-radius: 50%; background: var(--neutral-bg); color: var(--text-dim); font-size: 11px; font-weight: 700;
-    flex-shrink: 0;
-  }
-  .dropout-district { flex: 1; font-weight: 600; }
-  .dropout-pct { font-weight: 700; font-size: 14px; }
   .disease-tag { display: inline-block; width: 4px; height: 16px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .expand-row td { background: #fafbfe; padding: 10px 14px; }
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
@@ -759,17 +747,6 @@
   // Uses the source Excel's own explicit Drop Out figure (District sheet) --
   // see build_dropout_analysis's docstring. No formula is shown here; the
   // dashboard displays results, not the calculation behind them.
-  function dropoutDistrictListHtml(title, rows, tone) {
-    var rowsHtml = rows.map(function (r, i) {
-      return '<div class="dropout-row">' +
-        '<span class="dropout-rank">' + (i + 1) + '</span>' +
-        '<span class="dropout-district">' + escHtml(r.district) + '</span>' +
-        '<span class="dropout-pct ' + (tone === "bad" ? "rag-poor-text" : "rag-good-text") + '">' + fmtPct(r.dropout_pct) + '</span>' +
-      '</div>';
-    }).join("");
-    return '<div><h3>' + (tone === "bad" ? "🔻" : "🔺") + ' ' + title + '</h3>' + (rowsHtml || '<p class="section-note">No data.</p>') + '</div>';
-  }
-
   function dropoutAnalysisHtml(cs, kind) {
     if (cs.status !== "ok") return "";
     var d = cs.dropout;
@@ -781,11 +758,49 @@
       '<p class="section-note">Penta1 &rarr; Penta3 dropout, as reported in the source workbook\'s own Drop Out column.</p>' +
       '<div class="grid kpi-row">' + kpis.join("") + '</div>' +
       '<div class="grid two-col" style="margin-top:14px;">' +
-        dropoutDistrictListHtml("Top 5 Highest Dropout Districts", d.highest_districts, "bad") +
-        dropoutDistrictListHtml("Top 5 Lowest Dropout Districts", d.lowest_districts, "good") +
+        '<div><h3>🔻 Top 5 Highest Dropout Districts</h3><div class="chart-wrap"><canvas id="chart-dropout-highest"></canvas></div></div>' +
+        '<div><h3>🔺 Top 5 Lowest Dropout Districts</h3><div class="chart-wrap"><canvas id="chart-dropout-lowest"></canvas></div></div>' +
       '</div>' +
       editableInsight("dropout-" + kind, d.insight) +
     '</div>';
+  }
+
+  function renderDropoutChart(cs) {
+    destroyChart("dropoutHighest"); destroyChart("dropoutLowest");
+    if (cs.status !== "ok") return;
+    var d = cs.dropout;
+    var highestCanvas = document.getElementById("chart-dropout-highest");
+    var lowestCanvas = document.getElementById("chart-dropout-lowest");
+    highestCanvas.parentElement.style.height = Math.max(200, d.highest_districts.length * 44) + "px";
+    lowestCanvas.parentElement.style.height = Math.max(200, d.lowest_districts.length * 44) + "px";
+    charts.dropoutHighest = new Chart(highestCanvas, {
+      type: "bar",
+      data: {
+        labels: d.highest_districts.map(function (r) { return r.district; }),
+        datasets: [{
+          label: "Dropout %", data: d.highest_districts.map(function (r) { return r.dropout_pct; }),
+          backgroundColor: "#c5221f", labelText: d.highest_districts.map(function (r) { return fmtPct(r.dropout_pct); }),
+        }],
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 50 } }, plugins: { legend: { display: false } },
+      },
+    });
+    charts.dropoutLowest = new Chart(lowestCanvas, {
+      type: "bar",
+      data: {
+        labels: d.lowest_districts.map(function (r) { return r.district; }),
+        datasets: [{
+          label: "Dropout %", data: d.lowest_districts.map(function (r) { return r.dropout_pct; }),
+          backgroundColor: "#1e8e3e", labelText: d.lowest_districts.map(function (r) { return fmtPct(r.dropout_pct); }),
+        }],
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 50 } }, plugins: { legend: { display: false } },
+      },
+    });
   }
 
   // ---- Section 5: Trends and Key Insights ----
@@ -873,6 +888,7 @@
     renderAntigenMapsGrid(cs, kind);
     renderAntigenAnalysisChart(cs);
     renderTargetGapChart(cs, kind);
+    renderDropoutChart(cs);
     renderTrendsChart(cs);
     renderCoverageExplorer();
     wireEditableInsights(el);
