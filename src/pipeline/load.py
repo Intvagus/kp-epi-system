@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import SHEET_NAMES, infer_period
+from .detect import detect_workbook_type
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,10 +14,10 @@ def find_raw_files(raw_dir: Path | None = None) -> list[Path]:
     path); the web app passes a per-job temp directory instead so concurrent
     uploads never see each other's files."""
     raw_dir = raw_dir or (PROJECT_ROOT / "data" / "raw")
-    # VPD line lists live in the same folder but have a completely different
-    # sheet layout (see load_vpd.py) -- excluded here by filename so this
-    # loader doesn't try to read them as a coverage workbook.
-    files = sorted(p for p in raw_dir.glob("*.xlsx") if "vpd" not in p.name.lower())
+    # VPD line lists (and any other non-coverage file) live in the same
+    # folder but have a completely different sheet layout -- identified by
+    # actual sheet-name content (see detect.py), not by filename convention.
+    files = sorted(p for p in raw_dir.glob("*.xlsx") if detect_workbook_type(p).workbook_type == "coverage")
     if not files:
         raise FileNotFoundError(
             f"No coverage .xlsx files found in {raw_dir}. Drop the EPI coverage workbook(s) there and re-run."

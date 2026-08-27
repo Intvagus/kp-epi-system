@@ -161,6 +161,36 @@
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
   .mini-grid div { padding: 4px 6px; background: #fff; border-radius: 4px; border: 1px solid var(--border); }
   footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
+  button.export-btn {
+    background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: 8px;
+  }
+  button.export-btn:hover { background: rgba(255,255,255,0.22); }
+  .print-only { display: none; }
+  /* Printing/exporting to PDF captures exactly what's on screen right now --
+     whichever tab, period pill, and antigen/district selection the viewer
+     currently has open -- since there's no server round-trip involved. The
+     interactive controls themselves are hidden (a <select> or a clickable
+     pill button prints uselessly), but what they were SET TO must stay
+     visible as plain text, or the PDF wouldn't say which period/tab it is. */
+  @media print {
+    nav.tabs, header .period-select, header label[for="period-select"],
+    .controls-row select, button.export-btn, .insight-box[contenteditable]::before,
+    .pagination, input.search-box, th.sorted-asc::after, th.sorted-desc::after { display: none !important; }
+    .print-only { display: inline; }
+    .period-pill:not(.active) { display: none !important; }
+    .period-pill.active {
+      background: none !important; color: #000 !important; border: none !important;
+      padding: 0 !important; font-weight: 700; font-size: 13px;
+    }
+    .tab-panel { display: none !important; }
+    .tab-panel.active { display: block !important; }
+    body { background: #fff; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+    .chart-wrap, .map-wrap { break-inside: avoid; }
+    .table-scroll { overflow: visible; }
+    a.download { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -173,6 +203,8 @@
   <div>
     <label for="period-select" style="font-size:12px; margin-right:6px; opacity:0.85;">Coverage period:</label>
     <select id="period-select" class="period-select"></select>
+    <span class="print-only" id="print-period-label" style="font-weight:700;"></span>
+    <button class="export-btn" id="export-pdf-btn" title="Exports exactly what's currently on screen -- the active tab and whatever filters are selected">Download PDF</button>
   </div>
 </header>
 
@@ -262,10 +294,16 @@
     qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC",
     coveragePeriodKind: "monthly",
   };
+  function updatePrintPeriodLabel() {
+    var opt = periodSelect.options[periodSelect.selectedIndex];
+    document.getElementById("print-period-label").textContent = opt ? opt.textContent : "";
+  }
   periodSelect.addEventListener("change", function () {
     state.periodId = periodSelect.value;
+    updatePrintPeriodLabel();
     renderTab("overview"); renderTab("coverage");
   });
+  updatePrintPeriodLabel();
 
   function byPeriod(rows, level) {
     return rows.filter(function (r) { return r.period_id === state.periodId; });
@@ -277,7 +315,11 @@
   function renderOverview() {
     var el = document.getElementById("tab-overview");
     var prov = provinceRow();
-    if (!prov) { el.innerHTML = "<p>No coverage data for this period.</p>"; return; }
+    if (!prov) {
+      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
+        'No Coverage data uploaded yet. See the Coverage tab, or the Surveillance/Supervision tabs if that\'s what was uploaded.</div></div>';
+      return;
+    }
 
     var kpis = [
       ["BCG", prov.bcg_pct_reported, coverageRag(prov.bcg_pct_reported)],
@@ -743,7 +785,8 @@
     var el = document.getElementById("tab-coverage");
     var summary = DATA.coverage_summary;
     if (summary.status !== "ok") {
-      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>No coverage data available.</div></div>';
+      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
+        'No Coverage data uploaded yet.<br><span style="font-size:12px;">Upload a coverage workbook (District/Tehsil/UC Wise Analysis sheets) to populate this tab -- the Surveillance and Supervision tabs work independently and don\'t need it.</span></div></div>';
       return;
     }
     var kinds = [];
@@ -754,7 +797,7 @@
       kinds.push({ key: "cumulative", label: "Cumulative — " + summary.periods.cumulative.executive.current_period_label });
     }
     if (!kinds.length) {
-      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>No coverage data available.</div></div>';
+      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>No Coverage data uploaded yet.</div></div>';
       return;
     }
     if (kinds.map(function (k) { return k.key; }).indexOf(state.coveragePeriodKind) === -1) {
@@ -1122,6 +1165,10 @@
     else if (name === "supervision") renderSupervision();
     else if (name === "quality") renderQuality();
   }
+
+  document.getElementById("export-pdf-btn").addEventListener("click", function () {
+    window.print();
+  });
 
   renderTab("overview");
 })();

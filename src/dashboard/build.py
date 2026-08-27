@@ -101,25 +101,45 @@ def _load_csv(processed_dir: Path, name: str) -> list[dict]:
     return _clean_records(pd.read_csv(path).to_dict(orient="records"))
 
 
-def build_payload(processed_dir: Path) -> dict:
-    district = _load_table(processed_dir, "coverage_district.parquet", DISTRICT_FIELDS)
-    periods = sorted(
-        {(d["period_id"], d["period_type"], d["period_label"]) for d in district},
-        key=lambda p: p[0],
-    )
-    # Prefer the latest monthly period as the default view; fall back to the
-    # latest period of any type if no monthly period is present.
-    monthly = [p for p in periods if p[1] == "monthly"]
-    default_period_id = (monthly[-1] if monthly else periods[-1])[0]
+COVERAGE_EMPTY_REPORT = {
+    "periods": [], "row_counts": {"district": 0, "tehsil": 0, "uc": 0},
+    "exclusions_total": 0, "flags_total": 0, "flags_by_type": {}, "exclusions_by_reason": {},
+}
 
-    with open(processed_dir / "data_quality_report.json", encoding="utf-8") as f:
-        coverage_report = json.load(f)
-    coverage_summary_path = processed_dir / "coverage_summary.json"
-    if coverage_summary_path.exists():
-        with open(coverage_summary_path, encoding="utf-8") as f:
-            coverage_summary = json.load(f)
+
+def build_payload(processed_dir: Path) -> dict:
+    # Coverage is optional, same principle as VPD/supervision below: a job
+    # that only uploaded a VPD line list (no coverage workbook) must still
+    # get a working dashboard, with the Coverage tab showing an explicit
+    # "awaiting data" state instead of the whole build failing.
+    coverage_available = (processed_dir / "coverage_district.parquet").exists()
+    if coverage_available:
+        district = _load_table(processed_dir, "coverage_district.parquet", DISTRICT_FIELDS)
+        tehsil = _load_table(processed_dir, "coverage_tehsil.parquet", TEHSIL_FIELDS)
+        uc = _load_table(processed_dir, "coverage_uc.parquet", UC_FIELDS)
+        periods = sorted(
+            {(d["period_id"], d["period_type"], d["period_label"]) for d in district},
+            key=lambda p: p[0],
+        )
+        # Prefer the latest monthly period as the default view; fall back to
+        # the latest period of any type if no monthly period is present.
+        monthly = [p for p in periods if p[1] == "monthly"]
+        default_period_id = (monthly[-1] if monthly else periods[-1])[0]
+        with open(processed_dir / "data_quality_report.json", encoding="utf-8") as f:
+            coverage_report = json.load(f)
+        coverage_summary_path = processed_dir / "coverage_summary.json"
+        if coverage_summary_path.exists():
+            with open(coverage_summary_path, encoding="utf-8") as f:
+                coverage_summary = json.load(f)
+        else:
+            coverage_summary = {"status": "no_data"}
     else:
+        district, tehsil, uc = [], [], []
+        periods = []
+        default_period_id = None
+        coverage_report = COVERAGE_EMPTY_REPORT
         coverage_summary = {"status": "no_data"}
+
     vpd_summary_path = processed_dir / "vpd_summary.json"
     if vpd_summary_path.exists():
         with open(vpd_summary_path, encoding="utf-8") as f:
@@ -139,9 +159,10 @@ def build_payload(processed_dir: Path) -> dict:
         "default_period_id": default_period_id,
         "coverage": {
             "district": district,
-            "tehsil": _load_table(processed_dir, "coverage_tehsil.parquet", TEHSIL_FIELDS),
-            "uc": _load_table(processed_dir, "coverage_uc.parquet", UC_FIELDS),
+            "tehsil": tehsil,
+            "uc": uc,
         },
+        "coverage_available": coverage_available,
         "coverage_summary": coverage_summary,
         "quality": {
             "coverage_report": coverage_report,
@@ -168,13 +189,16 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     output_path = output_path or (PROJECT_ROOT / "output" / "dashboard.html")
 
     print("Building dashboard...")
-    for required in ["coverage_district.parquet", "coverage_tehsil.parquet",
-                      "coverage_uc.parquet", "data_quality_report.json"]:
-        if not (processed_dir / required).exists():
-            raise SystemExit(
-                f"Missing {processed_dir / required}. Run the coverage pipeline first "
-                f"to generate processed data before building the dashboard."
-            )
+    # Coverage and VPD are each optional (see build_payload) -- a dashboard
+    # with neither is the one real error case, since there would be nothing
+    # to show at all.
+    has_coverage = (processed_dir / "coverage_district.parquet").exists()
+    has_vpd = (processed_dir / "vpd_summary.json").exists()
+    if not has_coverage and not has_vpd:
+        raise SystemExit(
+            f"No processed data found in {processed_dir}. Run the coverage and/or "
+            f"VPD pipeline first to generate at least one dataset before building the dashboard."
+        )
 
     payload = build_payload(processed_dir)
     payload_json = json.dumps(payload, default=str, separators=(",", ":"))

@@ -29,7 +29,7 @@
   `output/Bulletin_Week_<N>_<year>.{pdf,xlsx,pptx}`. Rendered with Playwright
   (Chromium), one A4 page, matches the user-supplied sample bulletin layout.
   Word export not built (brief: only build on request, warn layout won't survive).
-- 46 tests passing (`pytest tests/`), pinned to real numbers throughout.
+- 84 tests passing (`pytest tests/`), pinned to real numbers throughout.
 - Run everything locally with `python run_weekly.py` from the project root.
 - **Web app** (`webapp/app.py`, Flask): upload-and-download front end wrapping
   the exact same pipeline/dashboard/bulletin modules, with per-job temp
@@ -54,11 +54,51 @@
   components / rejects traversal, without mangling the filename itself.
   Lesson: any future upload-handling code must NOT run uploaded EPI filenames
   through `secure_filename()`.
-- Dashboard build no longer hard-requires `vpd_summary.json` — if only a
-  coverage file is uploaded, the Surveillance tab renders an explicit
-  "awaiting data" state (`VPD_AWAITING_STUB` in `src/dashboard/build.py`)
-  instead of crashing. The bulletin still hard-requires VPD data (it's
-  VPD-only by design) and fails with a clear message if none was uploaded.
+- **Coverage and VPD are now fully independent, in both directions** —
+  Coverage and VPD each render an explicit "awaiting data" state
+  (`VPD_AWAITING_STUB` / the equivalent coverage-empty path in
+  `src/dashboard/build.py`) when the other wasn't uploaded, and
+  `build_dashboard()` no longer hard-requires coverage data (it used to;
+  a VPD-only upload built a bulletin but silently produced NO dashboard at
+  all — found and fixed this session). The bulletin still hard-requires VPD
+  data (it's VPD-only by design).
+- **File type is detected from actual sheet-name content**
+  (`src/pipeline/detect.py`), never from filename. The old approach ("VPD"
+  in the filename = VPD, else assume coverage) broke the moment a real
+  upload wasn't named the way this project's own sample files happen to be
+  named. `find_raw_files`/`find_vpd_files` both use this now. A file that
+  doesn't match either signature is reported to the user by name with a
+  clear message, never silently dropped or guessed at — this is also where
+  Monitoring/supervisory-visit uploads will plug in once a sample file
+  exists to build a signature against; right now they fall out as
+  "unrecognized" rather than being faked.
+- **Web upload UI is a single generic drop zone** (`webapp/templates/
+  upload.html`), not separate Coverage/VPD slots — the old two-slot form
+  required the user to know upfront which category each file belonged to,
+  which the auto-detection makes unnecessary. `webapp/app.py`'s `generate()`
+  classifies every uploaded file first, routes each to whichever pipeline
+  applies, and always attempts the dashboard build regardless of what
+  succeeded or failed elsewhere (previously gated behind `coverage_saved and
+  not manifest["errors"]`, which also meant one unrelated bad file in a
+  batch could silently block the dashboard for every good file alongside it
+  — also fixed this session).
+- **Excel data export** (`src/pipeline/export_excel.py` →
+  `EPI_Data_Export.xlsx`): a multi-sheet workbook built from the same
+  `data/processed/*` the dashboard reads (never recomputed, same
+  never-disagree principle as the bulletin). One sheet per actually-
+  processed component only — Coverage District/UC Data, Coverage KPI/
+  Antigen Summary, VPD Surveillance Summary, VPD District Breakdown — never
+  an empty or fabricated sheet for a component that wasn't uploaded.
+- **PDF export is client-side** (`window.print()` + a `@media print`
+  stylesheet in `template.html`), not server-rendered — it captures exactly
+  what's currently on screen (active tab, period pill, antigen/district
+  selection) since there's no server round-trip that knows the viewer's
+  client-side state. Works identically on a `dashboard.html` opened fully
+  offline, not just through the web app. The interactive controls themselves
+  (nav, selects, pill buttons) are hidden when printing, but what they were
+  set to stays visible as plain text — a `.print-only` label mirrors the
+  period dropdown's selected option, and the active period-pill is
+  re-styled as plain bold text instead of being hidden with the others.
 - Deployment target: Render.com, Docker runtime (`python:3.12-slim` +
   `playwright install --with-deps chromium` + gunicorn). Chosen because
   Playwright needs a real Chromium install, which rules out the smallest
