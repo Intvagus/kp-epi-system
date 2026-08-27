@@ -6,7 +6,43 @@
 - **Part 1b (VPD surveillance pipeline)**: done for measles-rubella, diphtheria,
   pertussis, NNT. `src/pipeline/{load_vpd,clean_vpd,indicators_vpd,run_vpd}.py`.
   AFP is stubbed (`AFP_STUB` in run_vpd.py) — no AFP line list has been received.
-  Supervisory-visit domain (Part 1c) not started — no file received yet.
+- **Part 1c (Monitoring / supervisory-visit pipeline)**: done for RCA (Rapid
+  Convenience Assessment, child-level field vaccination-status spot checks)
+  and Supervisory Checklist (facility-level visit compliance).
+  `src/pipeline/{load_monitoring,clean_monitoring,indicators_monitoring,
+  run_monitoring}.py` -> `data/processed/monitoring_summary.json` (+
+  `monitoring_rca_cases.parquet` / `monitoring_supervisory_visits.parquet`).
+  RCA and Supervisory Checklist are two genuinely separate reports (no shared
+  key beyond District/Tehsil/UC) with no valid row-level join between them —
+  they're never merged, only shown side by side in the same "Supervision" tab.
+  **Both source files are HTML tables saved with a `.xls` extension, not real
+  Excel binary/OOXML** (confirmed with `file`) — read via `pandas.read_html`,
+  never `openpyxl`. Detected by column-name signature
+  (`detect.py::detect_monitoring_file`, `RCA_COLUMN_SIGNATURE` /
+  `SUPERVISORY_COLUMN_SIGNATURE`), the same "content, never filename"
+  principle as Coverage/VPD sheet-name detection, just column-based since
+  there are no sheets. Column access in `clean_monitoring.py` is positional
+  (`RCA_COLUMNS`, `SUPERVISORY_FIELD_INDEX`), not name-based — the header
+  text is long, punctuation-heavy, and one column decodes with a mangled
+  apostrophe, same reasoning as `clean_vpd.py`'s positional MSL rename.
+  Supervisory Checklist's 4 composite scores (Service Functionality,
+  Monitoring System Quality, Operations Quality, Practices & Knowledge) are
+  the source system's own pre-computed percentages, passed through
+  unrecomputed ("trust the sheet", per the same rule as Coverage's UC-level
+  Access/Utilisation) — **"Service Functionality" was 0% for every visit in
+  the sample received**, traced to an entirely-unanswered UC-microplan
+  checklist block (columns 107-132, 0 non-null values across all 63 visits),
+  not a broken calculation; the dashboard shows this as an explicit caveat,
+  not a hidden 0%. One real data-entry inconsistency found and flagged (not
+  silently clipped): one visit recorded more functional SDD refrigerators
+  than its own total unit count — surfaced as `inconsistent_visits` in
+  `supervisory_cold_chain_summary`. RCA's zero-dose flag = Penta1 not
+  received among children for whom Penta1 was actually assessed (WHO's
+  standard zero-dose definition); "Not Applicable"/unassessed rows are
+  excluded from that denominator, not counted as zero-dose. Only Abbottabad
+  district data has been received so far for this domain — all Monitoring
+  code aggregates by whatever districts are actually present, never a
+  hardcoded list, so it will scale to full-province files unchanged.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
@@ -68,10 +104,11 @@
   upload wasn't named the way this project's own sample files happen to be
   named. `find_raw_files`/`find_vpd_files` both use this now. A file that
   doesn't match either signature is reported to the user by name with a
-  clear message, never silently dropped or guessed at — this is also where
-  Monitoring/supervisory-visit uploads will plug in once a sample file
-  exists to build a signature against; right now they fall out as
-  "unrecognized" rather than being faked.
+  clear message, never silently dropped or guessed at. Monitoring uploads
+  (RCA / Supervisory Checklist) go through a separate, analogous
+  column-based detector (`detect_monitoring_file`) since those files are
+  HTML tables saved as `.xls`, not real `.xlsx` workbooks with sheets — see
+  Part 1c above.
 - **Web upload UI is a single generic drop zone** (`webapp/templates/
   upload.html`), not separate Coverage/VPD slots — the old two-slot form
   required the user to know upfront which category each file belonged to,
@@ -162,11 +199,10 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 |---|---|---|---|
 | `data/raw/Dec 2025 Coverage Analysis (0-11).xlsx` | District, Teshil, UC Wise Analysis - Coverages, UC Wise Analysis - Difference i | **Monthly**, December 2025 | `(0-11)` in the filename = age band (surviving infants 0–11 months), NOT calendar months. Confirmed this is the file the original build brief's data-quality numbers (925 consistency fails, 56 zero-target UCs, BCG 1203%, Tor Ghar target 95,554) were taken from — exact match. |
 | `data/raw/Jan to Dec 2025.xlsx` | same 4 sheets | **Cumulative**, Jan–Dec 2025 | Same 37 district rows, same structure, larger (annual) numbers. Gives us a real second time point instead of a stub. |
+| `data/raw/RCA_Report_2.xls` | 1 HTML table, 50 columns, 340 child rows (34 RCA visits) | Aug 2026, Abbottabad district only | See Part 1c above. |
+| `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 
-VPD surveillance and supervisory-visit files have **not** been provided yet. Domains 2
-and 3 are built against a documented, versioned schema (`src/pipeline/schemas.py`,
-once added) with stub data, so the dashboard/bulletin layout can be demoed. A schema
-change there should be a config edit, not a rewrite.
+AFP (within VPD) has **not** been provided yet — see "Confirmed VPD decisions" below.
 
 ## Confirmed sheet structure (identical in both files)
 

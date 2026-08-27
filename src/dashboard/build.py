@@ -147,6 +147,20 @@ def build_payload(processed_dir: Path) -> dict:
     else:
         vpd = VPD_AWAITING_STUB
 
+    monitoring_summary_path = processed_dir / "monitoring_summary.json"
+    if monitoring_summary_path.exists():
+        with open(monitoring_summary_path, encoding="utf-8") as f:
+            monitoring = json.load(f)
+    else:
+        monitoring = {
+            "rca": {"status": "awaiting_data", "message": (
+                "No RCA (Rapid Convenience Assessment) file has been received yet."
+            )},
+            "supervisory": {"status": "awaiting_data", "message": (
+                "No Supervisory Checklist file has been received yet."
+            )},
+        }
+
     return {
         "config": {
             "coverage_good": COVERAGE_GOOD,
@@ -171,14 +185,7 @@ def build_payload(processed_dir: Path) -> dict:
             "vpd_flags": _load_csv(processed_dir, "vpd_quality_flags.csv"),
         },
         "vpd": vpd,
-        "supervision": {
-            "status": "awaiting_data",
-            "message": (
-                "No supervisory-visit data has been received yet. This tab will "
-                "populate automatically once a supervisory-visit file is added "
-                "to data/raw/ and the schema is confirmed."
-            ),
-        },
+        "monitoring": monitoring,
     }
 
 
@@ -189,15 +196,16 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     output_path = output_path or (PROJECT_ROOT / "output" / "dashboard.html")
 
     print("Building dashboard...")
-    # Coverage and VPD are each optional (see build_payload) -- a dashboard
-    # with neither is the one real error case, since there would be nothing
-    # to show at all.
+    # Coverage, VPD, and Monitoring are each optional (see build_payload) --
+    # a dashboard with none of them is the one real error case, since there
+    # would be nothing to show at all.
     has_coverage = (processed_dir / "coverage_district.parquet").exists()
     has_vpd = (processed_dir / "vpd_summary.json").exists()
-    if not has_coverage and not has_vpd:
+    has_monitoring = (processed_dir / "monitoring_summary.json").exists()
+    if not has_coverage and not has_vpd and not has_monitoring:
         raise SystemExit(
-            f"No processed data found in {processed_dir}. Run the coverage and/or "
-            f"VPD pipeline first to generate at least one dataset before building the dashboard."
+            f"No processed data found in {processed_dir}. Run the coverage, VPD, and/or "
+            f"monitoring pipeline first to generate at least one dataset before building the dashboard."
         )
 
     payload = build_payload(processed_dir)

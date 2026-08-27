@@ -75,8 +75,58 @@ def detect_workbook_type(path: Path) -> DetectionResult:
     return DetectionResult(
         "unknown", [], sheets,
         f"Could not confidently identify {path.name!r} as a Coverage or VPD surveillance "
-        f"workbook from its sheet names ({shown}). Monitoring/supervisory-visit uploads "
-        f"aren't supported yet -- no sample file has been received to build that pipeline "
-        f"against. If this is meant to be a Coverage or VPD file with renamed sheets, "
-        f"rename them to match the expected sheet names and re-upload."
+        f"workbook from its sheet names ({shown}). If this is meant to be a Coverage or VPD "
+        f"file with renamed sheets, rename them to match the expected sheet names and "
+        f"re-upload. Monitoring/supervisory-visit files (RCA / Supervisory Checklist) are "
+        f"typically saved as .xls, not .xlsx -- see detect_monitoring_file."
+    )
+
+
+# Monitoring domain files (RCA / Supervisory Checklist) are HTML tables saved
+# with a ".xls" extension, not real Excel workbooks -- openpyxl can't open
+# them at all, so they need their own column-based signature, checked against
+# an HTML-table read rather than sheet names.
+RCA_COLUMN_SIGNATURE = {"record id", "child name", "penta 1", "vaccince source"}
+SUPERVISORY_COLUMN_SIGNATURE = {
+    "type of vaccintion site", "service functionality", "monitoring system quality",
+}
+MIN_MATCHING_COLUMNS = 2
+
+
+def detect_monitoring_file(path: Path) -> DetectionResult:
+    """Classify one Monitoring-domain ".xls" (HTML table) file by its actual
+    column names. Never called on real .xlsx workbooks -- those go through
+    detect_workbook_type instead."""
+    try:
+        tables = pd.read_html(path)
+    except Exception as e:
+        return DetectionResult(
+            "unreadable", [], [],
+            f"{path.name!r} could not be read as an HTML table ({e})."
+        )
+    if not tables or tables[0].empty:
+        return DetectionResult("empty", [], [], f"{path.name!r} has no rows -- it appears to be empty.")
+
+    columns = [str(c).strip() for c in tables[0].columns]
+    normalized = {c.lower(): c for c in columns}
+    rca_matches = [normalized[k] for k in normalized if k in RCA_COLUMN_SIGNATURE]
+    supervisory_matches = [normalized[k] for k in normalized if k in SUPERVISORY_COLUMN_SIGNATURE]
+
+    if len(rca_matches) >= MIN_MATCHING_COLUMNS and len(rca_matches) >= len(supervisory_matches):
+        return DetectionResult(
+            "rca", rca_matches, columns,
+            f"Recognized as an RCA (Rapid Convenience Assessment) file ({len(rca_matches)} "
+            f"of {len(RCA_COLUMN_SIGNATURE)} expected columns found)."
+        )
+    if len(supervisory_matches) >= MIN_MATCHING_COLUMNS:
+        return DetectionResult(
+            "supervisory", supervisory_matches, columns,
+            f"Recognized as a Supervisory Checklist file ({len(supervisory_matches)} of "
+            f"{len(SUPERVISORY_COLUMN_SIGNATURE)} expected columns found)."
+        )
+    shown = ", ".join(columns[:6]) + (", ..." if len(columns) > 6 else "")
+    return DetectionResult(
+        "unknown", [], columns,
+        f"Could not confidently identify {path.name!r} as an RCA or Supervisory Checklist "
+        f"file from its columns ({shown})."
     )

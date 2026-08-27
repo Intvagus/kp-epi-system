@@ -26,6 +26,8 @@
     --diphtheria: #7d3c98;
     --pertussis: #1e8e3e;
     --nnt: #d97706;
+    --rca: #0f766e;
+    --supervisory: #b45309;
   }
   * { box-sizing: border-box; }
   body {
@@ -1393,11 +1395,267 @@
     });
   }
 
-  // ================= SUPERVISION =================
+  // ================= MONITORING (RCA + Supervisory Checklist) =================
+  function monitoringKpiCard(label, value, sub) {
+    return '<div class="kpi-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
+      (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+  }
+  function ratePct(pct) { return pct === null || pct === undefined ? "—" : pct.toFixed(1) + "%"; }
+  function rateColor(pct, goodMin, warnMin) {
+    if (pct === null || pct === undefined) return "#9aa0a6";
+    return pct >= goodMin ? "#1e8e3e" : pct >= warnMin ? "#b06a00" : "#c5221f";
+  }
+
+  function renderRcaSection(rca) {
+    if (rca.status === "awaiting_data") {
+      return '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA (Rapid Convenience Assessment)</h2>' +
+        '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(rca.message) + '</div></div>';
+    }
+    var ov = rca.overview, zd = rca.zero_dose;
+    var kpis = [
+      monitoringKpiCard("Children assessed", fmtNum(ov.total_children_assessed), rca.reporting_window || ""),
+      monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), ov.districts_covered + " district(s)"),
+      monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed"),
+      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
+    ].join("");
+
+    var htrEntry = rca.hard_to_reach, hrEntry = rca.high_risk_population;
+    var anomalyHtml = "";
+    if (zd.zero_dose_count > 0) {
+      var zdRows = zd.by_district.map(function (r) {
+        return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.zero_dose_count) + "</td></tr>";
+      }).join("");
+      anomalyHtml = '<div class="anomaly-box"><h3>Zero-dose children identified by district</h3>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Zero-dose count</th></tr></thead><tbody>' + zdRows + '</tbody></table></div></div>';
+    }
+
+    var insightId = "monitoring-rca-summary-" + (rca.reporting_window || "");
+    var autoInsight = fmtNum(ov.total_children_assessed) + " children assessed across " + fmtNum(ov.total_rca_visits) +
+      " RCA visits (" + (rca.reporting_window || "period not recorded") + "). " + fmtNum(zd.zero_dose_count) +
+      " zero-dose child(ren) identified (" + fmtPct(zd.zero_dose_pct) + " of assessed).";
+
+    var reasonsKeys = Object.keys(rca.non_vaccination_reasons);
+    var infoSourceKeys = Object.keys(rca.info_source_breakdown);
+    var sourceKeys = Object.keys(rca.vaccine_source_breakdown);
+    var sexKeys = Object.keys(rca.sex_breakdown);
+    var ageKeys = Object.keys(rca.age_group_breakdown);
+
+    var html =
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA (Rapid Convenience Assessment)</h2>' +
+        '<div class="grid kpi-row">' + kpis + '</div>' +
+        editableInsight(insightId, autoInsight) +
+        anomalyHtml +
+      '</div>' +
+      '<div class="card"><h2>Antigen-wise Vaccination Status (field-verified)</h2>' +
+        '<div class="chart-wrap tall"><canvas id="chart-rca-antigen"></canvas></div>' +
+        '<p class="sub">% Vaccinated among children for whom each antigen was applicable by age (excludes children not yet due).</p>' +
+      '</div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h2>Age Group</h2><div class="chart-wrap"><canvas id="chart-rca-age"></canvas></div></div>' +
+        '<div class="card"><h2>Sex</h2><div class="chart-wrap"><canvas id="chart-rca-sex"></canvas></div></div>' +
+      '</div>' +
+      '<div class="card"><h2>Zero-Dose Rate by District</h2><div class="chart-wrap tall"><canvas id="chart-rca-district"></canvas></div></div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h2>Vaccine Source</h2><div class="chart-wrap"><canvas id="chart-rca-source"></canvas></div>' +
+          '<p class="sub">Card = confirmed against a written record; recall = caregiver memory only.</p></div>' +
+        '<div class="card"><h2>Social Mobilization Channel</h2><div class="chart-wrap"><canvas id="chart-rca-infosource"></canvas></div></div>' +
+      '</div>' +
+      (reasonsKeys.length ? '<div class="card"><h2>Reasons for Non-Vaccination</h2><div class="chart-wrap"><canvas id="chart-rca-reasons"></canvas></div></div>' : "") +
+      (rca.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-rca-trend"></canvas></div></div>' : "");
+
+    return { html: html, build: function () {
+      destroyChart("rcaAntigen"); destroyChart("rcaAge"); destroyChart("rcaSex"); destroyChart("rcaDistrict");
+      destroyChart("rcaSource"); destroyChart("rcaInfoSource"); destroyChart("rcaReasons"); destroyChart("rcaTrend");
+
+      charts.rcaAntigen = new Chart(document.getElementById("chart-rca-antigen"), {
+        type: "bar",
+        data: {
+          labels: rca.antigen_coverage.map(function (r) { return r.antigen; }),
+          datasets: [{ label: "% Vaccinated (of applicable)", data: rca.antigen_coverage.map(function (r) { return r.pct; }),
+            backgroundColor: rca.antigen_coverage.map(function (r) { return targetMetColor(r.pct === null ? 0 : r.pct); }),
+            labelText: rca.antigen_coverage.map(function (r) { return r.pct === null ? "n/a" : fmtPct(r.pct) + " (" + r.vaccinated + "/" + r.assessed + ")"; }) }]
+        },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+      });
+
+      charts.rcaAge = new Chart(document.getElementById("chart-rca-age"), {
+        type: "bar",
+        data: { labels: ageKeys, datasets: [{ label: "Children", data: ageKeys.map(function (k) { return rca.age_group_breakdown[k]; }),
+          backgroundColor: "#1a5fb4", labelText: ageKeys.map(function (k) { return fmtNum(rca.age_group_breakdown[k]); }) }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
+      });
+
+      charts.rcaSex = new Chart(document.getElementById("chart-rca-sex"), {
+        type: "doughnut",
+        data: { labels: sexKeys, datasets: [{ data: sexKeys.map(function (k) { return rca.sex_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#c5221f", "#9aa0a6", "#b06a00"] }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+      });
+
+      var districtRows = rca.district_breakdown.slice().sort(function (a, b) { return (b.zero_dose_pct || 0) - (a.zero_dose_pct || 0); });
+      charts.rcaDistrict = new Chart(document.getElementById("chart-rca-district"), {
+        type: "bar",
+        data: {
+          labels: districtRows.map(function (r) { return r.district; }),
+          datasets: [{ label: "Zero-dose %", data: districtRows.map(function (r) { return r.zero_dose_pct; }),
+            backgroundColor: districtRows.map(function (r) { return (r.zero_dose_pct || 0) > 0 ? "#c5221f" : "#1e8e3e"; }),
+            labelText: districtRows.map(function (r) { return fmtPct(r.zero_dose_pct) + " (" + r.zero_dose_count + "/" + r.children_assessed + ")"; }) }]
+        },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { min: 0, max: 100 } } }
+      });
+
+      charts.rcaSource = new Chart(document.getElementById("chart-rca-source"), {
+        type: "doughnut",
+        data: { labels: sourceKeys, datasets: [{ data: sourceKeys.map(function (k) { return rca.vaccine_source_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#b06a00", "#9aa0a6"] }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+      });
+
+      charts.rcaInfoSource = new Chart(document.getElementById("chart-rca-infosource"), {
+        type: "bar",
+        data: { labels: infoSourceKeys, datasets: [{ label: "Mentions", data: infoSourceKeys.map(function (k) { return rca.info_source_breakdown[k]; }),
+          backgroundColor: "#0f766e", labelText: infoSourceKeys.map(function (k) { return fmtNum(rca.info_source_breakdown[k]); }) }] },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "15%" } } }
+      });
+
+      if (reasonsKeys.length) {
+        charts.rcaReasons = new Chart(document.getElementById("chart-rca-reasons"), {
+          type: "bar",
+          data: { labels: reasonsKeys, datasets: [{ label: "Cases", data: reasonsKeys.map(function (k) { return rca.non_vaccination_reasons[k]; }),
+            backgroundColor: "#c5221f", labelText: reasonsKeys.map(function (k) { return fmtNum(rca.non_vaccination_reasons[k]); }) }] },
+          options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "15%" } } }
+        });
+      }
+      if (rca.daily_visit_trend.length > 1) {
+        charts.rcaTrend = new Chart(document.getElementById("chart-rca-trend"), {
+          type: "line",
+          data: { labels: rca.daily_visit_trend.map(function (r) { return r.visit_date; }),
+            datasets: [{ label: "Children assessed", data: rca.daily_visit_trend.map(function (r) { return r.children_assessed; }), borderColor: "#0f766e", backgroundColor: "#0f766e", tension: 0.2 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+      }
+    } };
+  }
+
+  function renderSupervisorySection(sup) {
+    if (sup.status === "awaiting_data") {
+      return { html: '<div class="card"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
+        '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(sup.message) + '</div></div>', build: function () {} };
+    }
+    var ov = sup.overview;
+    var kpis = [
+      monitoringKpiCard("Supervisory visits", fmtNum(ov.total_visits), sup.reporting_window || ""),
+      monitoringKpiCard("Facilities covered", fmtNum(ov.facilities_covered), ov.districts_covered + " district(s)"),
+      monitoringKpiCard("Fixed-site-open rate", ratePct(sup.fixed_site_open_rate.pct), sup.fixed_site_open_rate.answered + " fixed-site visits checked"),
+      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
+    ].join("");
+
+    var scoreCards = sup.composite_scores.map(function (s) {
+      return monitoringKpiCard(s.category, ratePct(s.avg_pct), "range " + ratePct(s.min_pct) + " – " + ratePct(s.max_pct));
+    }).join("");
+
+    var serviceFunctionalityCaveat = sup.composite_scores.some(function (s) { return s.category === "Service Functionality" && s.avg_pct === 0; })
+      ? '<p class="sub">Note: "Service Functionality" reflects the UC-level microplan checklist block, which was not answered in any visit in this dataset -- a 0% average here means that section wasn\'t used during these visits, not that facilities failed every item.</p>' : "";
+
+    var riskHtml = "";
+    if (sup.practice_risk_flags.length) {
+      var riskPills = sup.practice_risk_flags.map(function (r) {
+        return '<span class="badge poor">' + escHtml(r.item) + ": " + ratePct(r.pct) + ' (' + r.yes + '/' + r.answered + ')</span>';
+      }).join(" ");
+      riskHtml = '<div class="alert-pills" style="margin-top:10px;">' + riskPills + '</div>';
+    }
+
+    var cc = sup.cold_chain;
+    var coldChainKpis = [
+      monitoringKpiCard("Backup power available", ratePct(cc.backup_power_available.pct), cc.backup_power_available.answered + " visits checked"),
+      monitoringKpiCard("SDD fridges functional", cc.sdd.total_units ? ratePct(Math.min(cc.sdd.pct_functional, 100)) : "—", cc.sdd.functional_units + "/" + cc.sdd.total_units + " units" + (cc.sdd.inconsistent_visits ? " (data inconsistency flagged)" : "")),
+      monitoringKpiCard("ILR functional units observed", fmtNum(cc.ilr_functional_units_observed), "no installed-base total in source data"),
+      monitoringKpiCard("Stockout in last 3 months", ratePct(cc.stockout_last_3_months.pct), cc.stockout_last_3_months.answered + " visits checked"),
+    ].join("");
+
+    var compItems = sup.compliance_items;
+    var siteKeys = Object.keys(sup.site_type_breakdown);
+
+    var districtRowsHtml = sup.district_breakdown.map(function (r) {
+      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.visits) + "</td><td>" + ratePct(r.score_service_functionality) +
+        "</td><td>" + ratePct(r.score_monitoring_system_quality) + "</td><td>" + ratePct(r.score_operations_quality) +
+        "</td><td>" + ratePct(r.score_practices_knowledge) + "</td></tr>";
+    }).join("");
+
+    function facilityRankRows(list) {
+      return list.map(function (r) {
+        return "<tr><td>" + escHtml(r.health_facility) + "</td><td>" + escHtml(r.district) + "</td><td>" + ratePct(r.pct) + "</td></tr>";
+      }).join("");
+    }
+    var rankings = sup.facility_rankings_operations_quality;
+
+    var insightId = "monitoring-supervisory-summary-" + (sup.reporting_window || "");
+    var autoInsight = fmtNum(ov.total_visits) + " supervisory visits to " + fmtNum(ov.facilities_covered) + " facilities (" +
+      (sup.reporting_window || "period not recorded") + "). Operations Quality averaged " +
+      ratePct((sup.composite_scores.filter(function (s) { return s.category === "Operations Quality"; })[0] || {}).avg_pct) + "." +
+      (sup.practice_risk_flags.length ? " " + sup.practice_risk_flags[0].item + " observed in " + ratePct(sup.practice_risk_flags[0].pct) + " of visits." : "");
+
+    var html =
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
+        '<div class="grid kpi-row">' + kpis + '</div>' +
+        editableInsight(insightId, autoInsight) +
+        riskHtml +
+      '</div>' +
+      '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat + '</div>' +
+      '<div class="card"><h2>Checklist Item Compliance (weakest first)</h2><div class="chart-wrap" style="height:' + Math.max(260, compItems.length * 24) + 'px;"><canvas id="chart-sup-compliance"></canvas></div></div>' +
+      '<div class="card"><h2>Cold Chain &amp; Vaccine Supply</h2><div class="grid kpi-row">' + coldChainKpis + '</div></div>' +
+      '<div class="card"><h2>Site Type</h2><div class="chart-wrap"><canvas id="chart-sup-sitetype"></canvas></div></div>' +
+      (sup.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-sup-trend"></canvas></div></div>' : "") +
+      '<h3>District-wise Composite Scores</h3>' +
+      '<div class="card"><div class="table-scroll"><table><thead><tr><th>District</th><th>Visits</th><th>Service Functionality</th><th>Monitoring System Quality</th><th>Operations Quality</th><th>Practices &amp; Knowledge</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div></div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h2>Top 5 Facilities (Operations Quality)</h2><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.top) + '</tbody></table></div></div>' +
+        '<div class="card"><h2>Bottom 5 Facilities (Operations Quality)</h2><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.bottom) + '</tbody></table></div></div>' +
+      '</div>';
+
+    return { html: html, build: function () {
+      destroyChart("supCompliance"); destroyChart("supSiteType"); destroyChart("supTrend");
+
+      charts.supCompliance = new Chart(document.getElementById("chart-sup-compliance"), {
+        type: "bar",
+        data: {
+          labels: compItems.map(function (r) { return r.item; }),
+          datasets: [{ label: "% Yes", data: compItems.map(function (r) { return r.pct; }),
+            backgroundColor: compItems.map(function (r) { return rateColor(r.pct, 80, 50); }),
+            labelText: compItems.map(function (r) { return fmtPct(r.pct) + " (" + r.yes + "/" + r.answered + ")"; }) }]
+        },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+      });
+
+      charts.supSiteType = new Chart(document.getElementById("chart-sup-sitetype"), {
+        type: "doughnut",
+        data: { labels: siteKeys, datasets: [{ data: siteKeys.map(function (k) { return sup.site_type_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#0f766e", "#b06a00"] }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+      });
+
+      if (sup.daily_visit_trend.length > 1) {
+        charts.supTrend = new Chart(document.getElementById("chart-sup-trend"), {
+          type: "line",
+          data: { labels: sup.daily_visit_trend.map(function (r) { return r.visit_date; }),
+            datasets: [{ label: "Visits", data: sup.daily_visit_trend.map(function (r) { return r.visits; }), borderColor: "#b45309", backgroundColor: "#b45309", tension: 0.2 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+      }
+    } };
+  }
+
   function renderSupervision() {
     var el = document.getElementById("tab-supervision");
-    el.innerHTML = '<div class="card"><h2>Supervisory Visits</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
-      DATA.supervision.message + '</div></div>';
+    var m = DATA.monitoring;
+    if (m.rca.status === "awaiting_data" && m.supervisory.status === "awaiting_data") {
+      el.innerHTML = '<div class="card"><h2>Monitoring</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
+        'No RCA or Supervisory Checklist data has been received yet. This tab will populate automatically once either file is uploaded.</div></div>';
+      return;
+    }
+    var rcaResult = renderRcaSection(m.rca);
+    var supResult = renderSupervisorySection(m.supervisory);
+    el.innerHTML = rcaResult.html + supResult.html;
+    wireEditableInsights(el);
+    rcaResult.build();
+    supResult.build();
   }
 
   // ================= DATA QUALITY =================

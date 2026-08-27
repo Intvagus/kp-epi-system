@@ -120,6 +120,27 @@ DOSE_STATUS_MAX_PLAUSIBLE = 4  # a value above this (e.g. the '111' seen in the 
 _VPD_WEEK_RANGE_RE = re.compile(r"week\s+(\d+)\s*-\s*(\d+)\s*,\s*(\d{4})", re.I)
 
 
+# --- Monitoring / supervisory visits (domain 3) ---
+# Two independent report exports from the field-monitoring system, both saved
+# as HTML tables with a ".xls" extension (not real Excel binary/OOXML --
+# confirmed via `file`), so they're read with pandas.read_html, not
+# openpyxl. Filenames carry no reliable period ("RCA_Report_2.xls",
+# "Supervisory_Checklist_Report.xls") -- the reporting window is read from
+# the data itself (min/max visit date), not inferred from the filename.
+RCA_VACCINE_ANTIGENS = [
+    "BCG", "HepB", "OPV 0", "OPV 1", "OPV 2", "OPV 3", "Rota 1", "Rota 2",
+    "Penta 1", "Penta 2", "Penta 3", "PCV 1", "PCV 2", "PCV 3",
+    "IPV I", "IPV II", "TCV", "MR I", "MR II",
+]
+
+RCA_STATUS_CANONICAL = {
+    "yesvaccinat": "Vaccinated",
+    "notvaccinat": "Not Vaccinated",
+    "notapp": "Not Applicable",
+    "notapplicable": "Not Applicable",
+}
+
+
 def infer_vpd_period(filename: str) -> Period:
     """VPD line lists are cumulative-to-date over a week range, e.g.
     'KP VPDs Line List Week 1-32,2026.xlsx' -- a different period model from

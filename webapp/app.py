@@ -27,9 +27,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.bulletin.build import build as build_bulletin
 from src.dashboard.build import build as build_dashboard
-from src.pipeline.detect import detect_workbook_type
+from src.pipeline.detect import detect_monitoring_file, detect_workbook_type
 from src.pipeline.export_excel import build_processed_excel
 from src.pipeline.run import run as run_coverage_pipeline
+from src.pipeline.run_monitoring import run_monitoring
 from src.pipeline.run_vpd import run_vpd
 
 JOBS_ROOT = Path(tempfile.gettempdir()) / "epi_jobs"
@@ -82,8 +83,8 @@ def _save_uploads(files, dest_dir: Path):
         if not f or not f.filename:
             continue
         name = _safe_upload_name(f.filename)
-        if not name.lower().endswith(".xlsx"):
-            raise ValueError(f"{f.filename!r} is not a .xlsx file.")
+        if not name.lower().endswith((".xlsx", ".xls")):
+            raise ValueError(f"{f.filename!r} is not a .xlsx or .xls file.")
         f.save(dest_dir / name)
         saved.append(name)
     return saved
@@ -113,23 +114,32 @@ def generate():
         shutil.rmtree(paths["base"], ignore_errors=True)
         return render_template(
             "error.html",
-            message="No files were uploaded. Add at least one .xlsx file (Coverage and/or VPD "
-                    "surveillance -- each is detected automatically, neither is mandatory).",
+            message="No files were uploaded. Add at least one .xlsx or .xls file (Coverage, "
+                    "VPD surveillance, RCA, and/or Supervisory Checklist -- each is detected "
+                    "automatically, none is mandatory).",
         ), 400
 
-    # Classify every uploaded file by its actual sheet-name content, never by
-    # filename -- see src/pipeline/detect.py. Each file is routed to whatever
-    # pipeline it belongs to; a file that can't be confidently identified is
-    # reported clearly rather than silently dropped or guessed at, and never
-    # blocks the files that WERE recognized.
-    coverage_saved, vpd_saved = [], []
+    # Classify every uploaded file by its actual content, never by filename --
+    # see src/pipeline/detect.py. Coverage/VPD are real .xlsx workbooks
+    # classified by sheet name; RCA/Supervisory Checklist are ".xls" files
+    # that are actually HTML tables, classified by column name instead (a
+    # genuinely different file shape, not just a different schema). Each
+    # file is routed to whatever pipeline it belongs to; a file that can't be
+    # confidently identified is reported clearly rather than silently
+    # dropped or guessed at, and never blocks the files that WERE recognized.
+    coverage_saved, vpd_saved, rca_saved, supervisory_saved = [], [], [], []
     for name in saved:
-        result = detect_workbook_type(paths["raw"] / name)
+        path = paths["raw"] / name
+        result = detect_monitoring_file(path) if name.lower().endswith(".xls") else detect_workbook_type(path)
         manifest["detected"].append({"filename": name, "type": result.workbook_type, "message": result.message})
         if result.workbook_type == "coverage":
             coverage_saved.append(name)
         elif result.workbook_type == "vpd":
             vpd_saved.append(name)
+        elif result.workbook_type == "rca":
+            rca_saved.append(name)
+        elif result.workbook_type == "supervisory":
+            supervisory_saved.append(name)
         else:
             manifest["errors"].append(f"{name}: {result.message}")
 
@@ -160,6 +170,17 @@ def generate():
             manifest["errors"].append(f"VPD pipeline: {e}")
         except Exception:
             manifest["errors"].append("VPD pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+
+    # RCA and Supervisory Checklist are independent of each other too -- an
+    # RCA-only or Supervisory-only upload still builds a Monitoring tab, and
+    # of Coverage/VPD (a Monitoring upload with neither of those still works).
+    if rca_saved or supervisory_saved:
+        try:
+            run_monitoring(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except SystemExit as e:
+            manifest["errors"].append(f"Monitoring pipeline: {e}")
+        except Exception:
+            manifest["errors"].append("Monitoring pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
 
     # Always attempted, regardless of which pipelines ran or failed above --
     # build_dashboard degrades each tab independently (an "awaiting data"

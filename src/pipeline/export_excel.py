@@ -6,8 +6,6 @@ component that wasn't uploaded. Reads the SAME data/processed/* files the
 dashboard reads and never recomputes anything, so the two can never disagree
 (same rule as the bulletin -- see src/bulletin/build.py).
 
-Monitoring has no processed output to read yet (no pipeline exists -- see
-CLAUDE.md), so it never appears here either; nothing to fabricate.
 """
 import json
 from pathlib import Path
@@ -105,6 +103,41 @@ def _vpd_district_rows(vpd: dict) -> list[dict]:
     return rows
 
 
+def _monitoring_summary(processed_dir: Path) -> dict | None:
+    path = processed_dir / "monitoring_summary.json"
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _rca_summary_rows(rca: dict) -> list[dict]:
+    ov = rca["overview"]
+    zd = rca["zero_dose"]
+    return [
+        {"metric": "Reporting window", "value": rca["reporting_window"]},
+        {"metric": "Total children assessed", "value": ov["total_children_assessed"]},
+        {"metric": "Total RCA visits", "value": ov["total_rca_visits"]},
+        {"metric": "Districts covered", "value": ov["districts_covered"]},
+        {"metric": "Zero-dose children (Penta1 not received)", "value": zd["zero_dose_count"]},
+        {"metric": "Zero-dose %", "value": zd["zero_dose_pct"]},
+    ]
+
+
+def _supervisory_summary_rows(sup: dict) -> list[dict]:
+    ov = sup["overview"]
+    rows = [
+        {"metric": "Reporting window", "value": sup["reporting_window"]},
+        {"metric": "Total supervisory visits", "value": ov["total_visits"]},
+        {"metric": "Districts covered", "value": ov["districts_covered"]},
+        {"metric": "Facilities covered", "value": ov["facilities_covered"]},
+        {"metric": "Fixed-site-open rate %", "value": sup["fixed_site_open_rate"]["pct"]},
+    ]
+    for s in sup["composite_scores"]:
+        rows.append({"metric": f"{s['category']} (avg %)", "value": s["avg_pct"]})
+    return rows
+
+
 def build_processed_excel(processed_dir: Path, output_path: Path) -> Path | None:
     """Writes one .xlsx with a sheet per available, actually-processed
     component. Returns None (writes nothing) if no processed data exists at
@@ -132,6 +165,21 @@ def build_processed_excel(processed_dir: Path, output_path: Path) -> Path | None
         district_rows = _vpd_district_rows(vpd)
         if district_rows:
             sheets["VPD District Breakdown"] = pd.DataFrame(district_rows)
+
+    monitoring = _monitoring_summary(processed_dir)
+    if monitoring:
+        rca = monitoring.get("rca", {})
+        if rca.get("status") == "ok":
+            sheets["RCA Summary"] = pd.DataFrame(_rca_summary_rows(rca))
+            sheets["RCA Antigen Coverage"] = pd.DataFrame(rca["antigen_coverage"])
+            if rca["district_breakdown"]:
+                sheets["RCA District Breakdown"] = pd.DataFrame(rca["district_breakdown"])
+        sup = monitoring.get("supervisory", {})
+        if sup.get("status") == "ok":
+            sheets["Supervisory Summary"] = pd.DataFrame(_supervisory_summary_rows(sup))
+            sheets["Supervisory Compliance Items"] = pd.DataFrame(sup["compliance_items"])
+            if sup["district_breakdown"]:
+                sheets["Supervisory District Breakdown"] = pd.DataFrame(sup["district_breakdown"])
 
     if not sheets:
         return None
