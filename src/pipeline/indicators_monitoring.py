@@ -4,6 +4,7 @@ one function each, same convention as indicators_vpd.py. The dashboard and
 Excel export both read only data/processed/monitoring_summary.json, never
 recomputing themselves.
 """
+import numpy as np
 import pandas as pd
 
 from .config import RCA_VACCINE_ANTIGENS
@@ -75,7 +76,13 @@ def rca_age_group_breakdown(df: pd.DataFrame) -> dict:
 
 
 def rca_sex_breakdown(df: pd.DataFrame) -> dict:
-    return df["sex"].value_counts(dropna=False).to_dict()
+    # dropna=False so a blank Gender cell is still counted somewhere (not
+    # silently dropped from the total) -- relabelled from pandas/JSON's
+    # "NaN" to a human-readable bucket name for display.
+    counts = df["sex"].value_counts(dropna=False).to_dict()
+    if np.nan in counts:
+        counts["Not Recorded"] = counts.pop(np.nan)
+    return counts
 
 
 def rca_area_type_breakdown(df: pd.DataFrame) -> list[dict]:

@@ -382,11 +382,15 @@
       catTotals[0] += r.cat1_count || 0; catTotals[1] += r.cat2_count || 0;
       catTotals[2] += r.cat3_count || 0; catTotals[3] += r.cat4_count || 0;
     });
+    var catLabelBase = ["Category 1 (good access, good use)", "Category 2 (good access, poor use)",
+      "Category 3 (poor access, good use)", "Category 4 (poor access, poor use)"];
+    var catTotalSum = catTotals.reduce(function (a, b) { return a + b; }, 0);
     charts.category = new Chart(document.getElementById("chart-category"), {
       type: "doughnut",
       data: {
-        labels: ["Category 1 (good access, good use)", "Category 2 (good access, poor use)",
-          "Category 3 (poor access, good use)", "Category 4 (poor access, poor use)"],
+        labels: catLabelBase.map(function (l, i) {
+          return l + ": " + fmtNum(catTotals[i]) + " (" + (catTotalSum ? (catTotals[i] / catTotalSum * 100).toFixed(1) : "0.0") + "%)";
+        }),
         datasets: [{ data: catTotals, backgroundColor: ["#1e8e3e", "#b06a00", "#5b7fd6", "#c5221f"] }]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } } }
@@ -486,8 +490,13 @@
             ctx.textAlign = positive ? "left" : "right";
             ctx.fillText(label, bar.x + (positive ? 5 : -5), bar.y);
           } else {
-            ctx.textAlign = "center";
-            ctx.fillText(label, bar.x, bar.y - 8);
+            // A center-aligned label at the first/last point on a line/bar
+            // chart runs past the chart area's edge -- flip alignment there
+            // instead of letting the text clip off the canvas.
+            var area = chart.chartArea, half = ctx.measureText(label).width / 2;
+            if (bar.x + half > area.right) { ctx.textAlign = "right"; ctx.fillText(label, area.right, bar.y - 8); }
+            else if (bar.x - half < area.left) { ctx.textAlign = "left"; ctx.fillText(label, area.left, bar.y - 8); }
+            else { ctx.textAlign = "center"; ctx.fillText(label, bar.x, bar.y - 8); }
           }
         });
       });
@@ -495,6 +504,44 @@
     },
   };
   Chart.register(barValueLabelsPlugin);
+
+  // For a line series with more than a couple of points, labelling every
+  // point permanently would overlap/clutter -- labelling just the peak and
+  // the latest value (the two numbers a reader actually needs at a glance)
+  // keeps the chart PDF-friendly without needing hover for the rest.
+  function peakLatestLabels(values, fmt) {
+    fmt = fmt || fmtNum;
+    var labels = values.map(function () { return null; });
+    if (!values.length) return labels;
+    var peakIdx = 0;
+    values.forEach(function (v, i) { if ((v || 0) > (values[peakIdx] || 0)) peakIdx = i; });
+    var lastIdx = values.length - 1;
+    if (peakIdx === lastIdx) {
+      labels[lastIdx] = "Peak/Latest: " + fmt(values[lastIdx]);
+    } else {
+      labels[peakIdx] = "Peak: " + fmt(values[peakIdx]);
+      labels[lastIdx] = "Latest: " + fmt(values[lastIdx]);
+    }
+    return labels;
+  }
+
+  var DOUGHNUT_PALETTE = ["#1a5fb4", "#c5221f", "#0f766e", "#b06a00", "#7d3c98", "#9aa0a6"];
+  // Chart.js tooltips only show a slice's value on hover -- for a static
+  // screenshot or a printed PDF that's invisible, so the count and % are
+  // baked directly into the legend label text instead (e.g. "Male: 155
+  // (52.0%)"), always visible, never dependent on hover.
+  function doughnutData(counts) {
+    var keys = Object.keys(counts);
+    var total = keys.reduce(function (s, k) { return s + counts[k]; }, 0);
+    return {
+      labels: keys.map(function (k) {
+        var pct = total ? (counts[k] / total * 100) : 0;
+        return k + ": " + fmtNum(counts[k]) + " (" + pct.toFixed(1) + "%)";
+      }),
+      values: keys.map(function (k) { return counts[k]; }),
+      colors: keys.map(function (_, i) { return DOUGHNUT_PALETTE[i % DOUGHNUT_PALETTE.length]; }),
+    };
+  }
 
   function kpiCard(label, value, sub, rag) {
     return '<div class="kpi-card' + (rag ? " rag-" + rag : "") + '"><div class="label">' + label + '</div>' +
@@ -1246,35 +1293,48 @@
       if (i === lastIdx) return "Latest: " + r.case_count;
       return null;
     });
+    var rollingAvgValues = curve.map(function (r) { return r.rolling_7d_avg; });
+    var rollingAvgLabels = peakLatestLabels(rollingAvgValues, function (v) { return v.toFixed(1); });
     charts.mslDaily = new Chart(document.getElementById("chart-msl-daily"), {
       data: {
         labels: curve.map(function (r) { return r.onset_day; }),
         datasets: [
           { type: "bar", label: "Daily suspected cases", data: curve.map(function (r) { return r.case_count; }),
             backgroundColor: "#94a3c4", labelText: curveLabelText },
-          { type: "line", label: "7-day rolling average", data: curve.map(function (r) { return r.rolling_7d_avg; }),
-            borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.25, pointRadius: 0, borderWidth: 2 },
+          { type: "line", label: "7-day rolling average", data: rollingAvgValues,
+            borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.25,
+            pointRadius: rollingAvgLabels.map(function (l) { return l ? 4 : 0; }), borderWidth: 2,
+            labelText: rollingAvgLabels },
         ]
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } },
         plugins: { legend: { position: "bottom" } },
         scales: { x: { ticks: { maxTicksLimit: 12, autoSkip: true } } },
       }
     });
 
     var trend = msl.weekly_trend;
+    var trendSuspected = trend.map(function (r) { return r.suspected; });
+    var trendMeasles = trend.map(function (r) { return r.measles_confirmed; });
+    var trendRubella = trend.map(function (r) { return r.rubella_confirmed; });
+    var trendSuspectedLabels = peakLatestLabels(trendSuspected);
+    var trendMeaslesLabels = peakLatestLabels(trendMeasles);
+    var trendRubellaLabels = peakLatestLabels(trendRubella);
     charts.mslTrend = new Chart(document.getElementById("chart-msl-trend"), {
       type: "line",
       data: {
         labels: trend.map(function (r) { return "W" + r.epi_week; }),
         datasets: [
-          { label: "Suspected", data: trend.map(function (r) { return r.suspected; }), borderColor: "#1a3a7a", backgroundColor: "#1a3a7a", tension: 0.2 },
-          { label: "Measles confirmed", data: trend.map(function (r) { return r.measles_confirmed; }), borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.2 },
-          { label: "Rubella confirmed", data: trend.map(function (r) { return r.rubella_confirmed; }), borderColor: "#b06a00", backgroundColor: "#b06a00", tension: 0.2 },
+          { label: "Suspected", data: trendSuspected, borderColor: "#1a3a7a", backgroundColor: "#1a3a7a", tension: 0.2,
+            pointRadius: trendSuspectedLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendSuspectedLabels },
+          { label: "Measles confirmed", data: trendMeasles, borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.2,
+            pointRadius: trendMeaslesLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendMeaslesLabels },
+          { label: "Rubella confirmed", data: trendRubella, borderColor: "#b06a00", backgroundColor: "#b06a00", tension: 0.2,
+            pointRadius: trendRubellaLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendRubellaLabels },
         ]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { position: "bottom" } } }
     });
 
     var ageOrder = ["0-8m", "9-23m", "24-59m", "60m+"];
@@ -1352,12 +1412,12 @@
         scales: { x: { grace: "15%" } } }
     });
 
-    var sexKeys = Object.keys(msl.sex_breakdown);
+    var sexDoughnut = doughnutData(msl.sex_breakdown);
     charts.mslSex = new Chart(document.getElementById("chart-msl-sex"), {
       type: "doughnut",
       data: {
-        labels: sexKeys,
-        datasets: [{ data: sexKeys.map(function (k) { return msl.sex_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#c5221f", "#9aa0a6"] }]
+        labels: sexDoughnut.labels,
+        datasets: [{ data: sexDoughnut.values, backgroundColor: sexDoughnut.colors }]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" },
         tooltip: { enabled: true } } }
@@ -1436,8 +1496,6 @@
 
     var reasonsKeys = Object.keys(rca.non_vaccination_reasons);
     var infoSourceKeys = Object.keys(rca.info_source_breakdown);
-    var sourceKeys = Object.keys(rca.vaccine_source_breakdown);
-    var sexKeys = Object.keys(rca.sex_breakdown);
     var ageKeys = Object.keys(rca.age_group_breakdown);
 
     var html =
@@ -1485,9 +1543,10 @@
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
       });
 
+      var rcaSexDoughnut = doughnutData(rca.sex_breakdown);
       charts.rcaSex = new Chart(document.getElementById("chart-rca-sex"), {
         type: "doughnut",
-        data: { labels: sexKeys, datasets: [{ data: sexKeys.map(function (k) { return rca.sex_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#c5221f", "#9aa0a6", "#b06a00"] }] },
+        data: { labels: rcaSexDoughnut.labels, datasets: [{ data: rcaSexDoughnut.values, backgroundColor: rcaSexDoughnut.colors }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
       });
 
@@ -1503,9 +1562,10 @@
         options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { min: 0, max: 100 } } }
       });
 
+      var rcaSourceDoughnut = doughnutData(rca.vaccine_source_breakdown);
       charts.rcaSource = new Chart(document.getElementById("chart-rca-source"), {
         type: "doughnut",
-        data: { labels: sourceKeys, datasets: [{ data: sourceKeys.map(function (k) { return rca.vaccine_source_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#b06a00", "#9aa0a6"] }] },
+        data: { labels: rcaSourceDoughnut.labels, datasets: [{ data: rcaSourceDoughnut.values, backgroundColor: rcaSourceDoughnut.colors }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
       });
 
@@ -1525,11 +1585,14 @@
         });
       }
       if (rca.daily_visit_trend.length > 1) {
+        var rcaTrendValues = rca.daily_visit_trend.map(function (r) { return r.children_assessed; });
+        var rcaTrendLabels = peakLatestLabels(rcaTrendValues);
         charts.rcaTrend = new Chart(document.getElementById("chart-rca-trend"), {
           type: "line",
           data: { labels: rca.daily_visit_trend.map(function (r) { return r.visit_date; }),
-            datasets: [{ label: "Children assessed", data: rca.daily_visit_trend.map(function (r) { return r.children_assessed; }), borderColor: "#0f766e", backgroundColor: "#0f766e", tension: 0.2 }] },
-          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            datasets: [{ label: "Children assessed", data: rcaTrendValues, borderColor: "#0f766e", backgroundColor: "#0f766e", tension: 0.2,
+              pointRadius: rcaTrendLabels.map(function (l) { return l ? 4 : 2; }), labelText: rcaTrendLabels }] },
+          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { display: false } } }
         });
       }
     } };
@@ -1572,7 +1635,6 @@
     ].join("");
 
     var compItems = sup.compliance_items;
-    var siteKeys = Object.keys(sup.site_type_breakdown);
 
     var districtRowsHtml = sup.district_breakdown.map(function (r) {
       return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.visits) + "</td><td>" + ratePct(r.score_service_functionality) +
@@ -1625,18 +1687,22 @@
         options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
       });
 
+      var supSiteDoughnut = doughnutData(sup.site_type_breakdown);
       charts.supSiteType = new Chart(document.getElementById("chart-sup-sitetype"), {
         type: "doughnut",
-        data: { labels: siteKeys, datasets: [{ data: siteKeys.map(function (k) { return sup.site_type_breakdown[k]; }), backgroundColor: ["#1a5fb4", "#0f766e", "#b06a00"] }] },
+        data: { labels: supSiteDoughnut.labels, datasets: [{ data: supSiteDoughnut.values, backgroundColor: supSiteDoughnut.colors }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
       });
 
       if (sup.daily_visit_trend.length > 1) {
+        var supTrendValues = sup.daily_visit_trend.map(function (r) { return r.visits; });
+        var supTrendLabels = peakLatestLabels(supTrendValues);
         charts.supTrend = new Chart(document.getElementById("chart-sup-trend"), {
           type: "line",
           data: { labels: sup.daily_visit_trend.map(function (r) { return r.visit_date; }),
-            datasets: [{ label: "Visits", data: sup.daily_visit_trend.map(function (r) { return r.visits; }), borderColor: "#b45309", backgroundColor: "#b45309", tension: 0.2 }] },
-          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            datasets: [{ label: "Visits", data: supTrendValues, borderColor: "#b45309", backgroundColor: "#b45309", tension: 0.2,
+              pointRadius: supTrendLabels.map(function (l) { return l ? 4 : 2; }), labelText: supTrendLabels }] },
+          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { display: false } } }
         });
       }
     } };
