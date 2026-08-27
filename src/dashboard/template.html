@@ -205,6 +205,16 @@
   var KP_GEO = JSON.parse(document.getElementById("kp-geo").textContent);
   var charts = {}; // name -> Chart instance, so we can destroy before re-render
 
+  // Every place user-typed text (search boxes) or saved localStorage text
+  // (editable insights) gets interpolated back into an HTML string built by
+  // string concatenation MUST go through this first -- otherwise a stray "
+  // or < breaks out of an attribute/tag and can inject arbitrary markup or
+  // attributes (confirmed reproducible: typing `Peshawar" onmouseover="..`
+  // into a search box corrupted the input's own attributes).
+  function escHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
   function fmtPct(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : v.toFixed(1) + "%"; }
   function fmtNum(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toLocaleString(); }
   function ragClass(rag) { return rag ? "rag-" + rag : ""; }
@@ -371,8 +381,8 @@
 
   function renderBreadcrumb() {
     var parts = ['<a data-nav="province">Province</a>'];
-    if (state.coverageDistrict) parts.push(' &rsaquo; <a data-nav="district">' + state.coverageDistrict + '</a>');
-    if (state.coverageTehsil) parts.push(' &rsaquo; ' + state.coverageTehsil);
+    if (state.coverageDistrict) parts.push(' &rsaquo; <a data-nav="district">' + escHtml(state.coverageDistrict) + '</a>');
+    if (state.coverageTehsil) parts.push(' &rsaquo; ' + escHtml(state.coverageTehsil));
     return '<div class="breadcrumb">' + parts.join("") + '</div>';
   }
 
@@ -397,7 +407,7 @@
     try { saved = localStorage.getItem("epi-insight:" + id); } catch (e) {}
     var text = (saved !== null && saved !== "") ? saved : autoText;
     return '<div class="insight-box" contenteditable="true" spellcheck="false" data-insight-id="' + id + '" ' +
-      'title="Click to edit this note">' + text + '</div>';
+      'title="Click to edit this note">' + escHtml(text) + '</div>';
   }
   function wireEditableInsights(root) {
     root.querySelectorAll("[data-insight-id]").forEach(function (box) {
@@ -791,6 +801,13 @@
 
   function renderCoverageExplorer() {
     var el = document.getElementById("coverage-explorer-mount");
+    // el.innerHTML below rebuilds the search input from scratch on every
+    // keystroke (the whole table re-renders as you type), which drops
+    // keyboard focus -- confirmed reproducible: without this, only the
+    // first character you type ever registers. Save focus/cursor state
+    // before the rebuild and restore it after.
+    var searchWasFocused = document.activeElement && document.activeElement.id === "coverage-search";
+    var searchCursorPos = searchWasFocused ? document.activeElement.selectionStart : null;
     var cols = COVERAGE_COLS[state.coverageLevel];
     var rows = coverageRows();
     if (state.coverageSearch) {
@@ -823,7 +840,7 @@
           var rag = RAG_COLS[key] === "dropout" ? dropoutRag(v) : coverageRag(v);
           return '<td class="pct-cell ' + ragTextClass(rag) + '">' + fmtPct(v) + "</td>";
         }
-        return "<td>" + (v === null || v === undefined ? "—" : v) + "</td>";
+        return "<td>" + (v === null || v === undefined ? "—" : escHtml(v)) + "</td>";
       }).join("");
       var clickable = state.coverageLevel !== "uc";
       return '<tr class="' + (clickable ? "clickable" : "") + '" data-idx="' + i + '">' + cells + "</tr>" +
@@ -833,12 +850,17 @@
     el.innerHTML =
       renderBreadcrumb() +
       '<div class="card">' +
-      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search ' + state.coverageLevel + '..." value="' + state.coverageSearch + '" id="coverage-search"></div>' +
+      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search ' + escHtml(state.coverageLevel) + '..." value="' + escHtml(state.coverageSearch) + '" id="coverage-search"></div>' +
       '<div class="table-scroll"><table><thead><tr>' + thead + '</tr></thead><tbody>' + tbody + '</tbody></table></div>' +
       (rows.length === 0 ? '<p style="color:var(--text-dim);">No rows match.</p>' : '') +
       '</div>';
 
-    document.getElementById("coverage-search").addEventListener("input", function (e) {
+    var searchBox = document.getElementById("coverage-search");
+    if (searchWasFocused) {
+      searchBox.focus();
+      searchBox.setSelectionRange(searchCursorPos, searchCursorPos);
+    }
+    searchBox.addEventListener("input", function (e) {
       state.coverageSearch = e.target.value; renderCoverageExplorer();
     });
     el.querySelectorAll("th[data-col]").forEach(function (th) {
@@ -881,7 +903,7 @@
       ["IPV1%", fmtPct(r.ipv1_pct)], ["IPV2%", fmtPct(r.ipv2_pct)], ["TCV%", fmtPct(r.tcv_pct)],
       ["Penta2%", fmtPct(r.penta2_pct)]];
     return '<div class="mini-grid">' + fields.map(function (f) {
-      return "<div><strong>" + f[0] + ":</strong> " + (f[1] === null || f[1] === undefined ? "—" : f[1]) + "</div>";
+      return "<div><strong>" + f[0] + ":</strong> " + (f[1] === null || f[1] === undefined ? "—" : escHtml(f[1])) + "</div>";
     }).join("") + "</div>";
   }
 
@@ -916,7 +938,7 @@
 
     var districtRowsHtml = msl.district_breakdown.slice().sort(function (a, b) { return b.suspected - a.suspected; })
       .map(function (r) {
-        return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.measles_confirmed) +
+        return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.measles_confirmed) +
           "</td><td>" + fmtNum(r.rubella_confirmed) + "</td></tr>";
       }).join("");
 
@@ -929,14 +951,14 @@
     ].join("");
 
     var pertRowsHtml = pert.district_breakdown.slice().sort(function (a, b) { return b.case_count - a.case_count; })
-      .map(function (r) { return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+      .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
 
     var nntKpis = [
       diseaseKpiCard("Cases (YTD)", fmtNum(nnt.ytd.case_count), ""),
       diseaseKpiCard("Deaths", fmtNum(nnt.ytd.deaths), ""),
     ].join("");
     var nntRowsHtml = nnt.by_district_ytd.slice().sort(function (a, b) { return b.case_count - a.case_count; })
-      .map(function (r) { return "<tr><td>" + r.district + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+      .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
 
     el.innerHTML =
       '<div class="card"><h2><span class="disease-tag" style="background:var(--measles);"></span>Measles &amp; Rubella (weeks 1-' + v.latest_epi_week + ', 2026)</h2>' +
@@ -1018,6 +1040,10 @@
   // ================= DATA QUALITY =================
   function renderQuality() {
     var el = document.getElementById("tab-quality");
+    // Same focus-loss issue as the Coverage Explorer's search box -- see its
+    // comment for why this save/restore is needed.
+    var searchWasFocused = document.activeElement && document.activeElement.id === "quality-search";
+    var searchCursorPos = searchWasFocused ? document.activeElement.selectionStart : null;
     var rep = DATA.quality.coverage_report;
     var flagTiles = Object.keys(rep.flags_by_type || {}).map(function (k) {
       return diseaseKpiCard(k.replace(/_/g, " "), fmtNum(rep.flags_by_type[k]), "coverage domain");
@@ -1043,11 +1069,16 @@
     var pageRows = filtered.slice(state.qualityPage * pageSize, (state.qualityPage + 1) * pageSize);
 
     var flagRowsHtml = pageRows.map(function (f) {
-      return "<tr><td>" + (f.period_id || "") + "</td><td>" + f.level + "</td><td>" + f.entity + "</td><td>" + f.flag_type + "</td><td>" + (f.detail || "") + "</td></tr>";
+      // entity/detail ultimately come from an uploaded Excel file's cell
+      // values (district/UC/tehsil names, mismatch details) -- escaped
+      // since this dashboard's web-app front end accepts uploads from
+      // outside this codebase.
+      return "<tr><td>" + escHtml(f.period_id || "") + "</td><td>" + escHtml(f.level) + "</td><td>" + escHtml(f.entity) +
+        "</td><td>" + escHtml(f.flag_type) + "</td><td>" + escHtml(f.detail || "") + "</td></tr>";
     }).join("");
 
     var exclRowsHtml = DATA.quality.coverage_exclusions.map(function (r) {
-      return "<tr><td>" + r.period_id + "</td><td>" + r.level + "</td><td>" + r.entity + "</td><td>" + r.reason + "</td></tr>";
+      return "<tr><td>" + escHtml(r.period_id) + "</td><td>" + escHtml(r.level) + "</td><td>" + escHtml(r.entity) + "</td><td>" + escHtml(r.reason) + "</td></tr>";
     }).join("");
 
     el.innerHTML =
@@ -1057,7 +1088,7 @@
       '<div class="card"><h2>All flags (' + fmtNum(filtered.length) + ')</h2>' +
         '<div class="controls-row">' +
           '<select class="filter-select" id="quality-type-filter">' + typeOptions + '</select>' +
-          '<input type="text" class="search-box" placeholder="Search entity..." id="quality-search" value="' + state.qualitySearch + '">' +
+          '<input type="text" class="search-box" placeholder="Search entity..." id="quality-search" value="' + escHtml(state.qualitySearch) + '">' +
         '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>Period</th><th>Level</th><th>Entity</th><th>Flag type</th><th>Detail</th></tr></thead><tbody>' + flagRowsHtml + '</tbody></table></div>' +
         '<div class="pagination">' +
@@ -1071,7 +1102,12 @@
     document.getElementById("quality-type-filter").addEventListener("change", function (e) {
       state.qualityFilterType = e.target.value; state.qualityPage = 0; renderQuality();
     });
-    document.getElementById("quality-search").addEventListener("input", function (e) {
+    var qSearchBox = document.getElementById("quality-search");
+    if (searchWasFocused) {
+      qSearchBox.focus();
+      qSearchBox.setSelectionRange(searchCursorPos, searchCursorPos);
+    }
+    qSearchBox.addEventListener("input", function (e) {
       state.qualitySearch = e.target.value; state.qualityPage = 0; renderQuality();
     });
     document.getElementById("q-prev").addEventListener("click", function () { state.qualityPage--; renderQuality(); });
