@@ -102,20 +102,21 @@ def _best_worst_antigen(province_row: pd.Series) -> dict:
     }
 
 
-def _best_worst_uc(uc_period: pd.DataFrame) -> dict:
-    col = f"{SUMMARY_ANTIGEN}_pct"
-    # A UC with no target (null %) or an implausible >threshold% value can't
-    # legitimately be called "best" -- excluded from the best pick only;
-    # "worst" has no such problem since low values are never outliers.
-    valid = uc_period[uc_period[col].notna() & (uc_period[col] <= OUTLIER_PCT_THRESHOLD)]
-    worst_valid = uc_period[uc_period[col].notna()]
+def _best_worst_district(district_rows: pd.DataFrame) -> dict:
+    col = f"{SUMMARY_ANTIGEN}_pct_reported"
+    # A district above the outlier threshold can't legitimately be called
+    # "best" -- excluded from the best pick only; "worst" has no such
+    # problem since low values are
+    # never outliers.
+    valid = district_rows[district_rows[col].notna() & (district_rows[col] <= OUTLIER_PCT_THRESHOLD)]
+    worst_valid = district_rows[district_rows[col].notna()]
     if valid.empty or worst_valid.empty:
         return {"best": None, "worst": None}
     best_row = valid.loc[valid[col].idxmax()]
     worst_row = worst_valid.loc[worst_valid[col].idxmin()]
     return {
-        "best": {"uc_name": best_row["uc_name"], "district": best_row["district"], "pct": _r(best_row[col])},
-        "worst": {"uc_name": worst_row["uc_name"], "district": worst_row["district"], "pct": _r(worst_row[col])},
+        "best": {"district": best_row["district"], "pct": _r(best_row[col])},
+        "worst": {"district": worst_row["district"], "pct": _r(worst_row[col])},
     }
 
 
@@ -142,11 +143,11 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
     if prov is None:
         return {"status": "no_data"}
     current_label = district_all[district_all["period_id"] == period_id]["period_label"].iloc[0]
-    uc_current = uc_all[uc_all["period_id"] == period_id]
+    districts_current = _district_rows(district_all, period_id)
 
     antigen_extremes = _best_worst_antigen(prov)
-    uc_extremes = _best_worst_uc(uc_current)
-    compliance = _compliance_counts(uc_current[f"{SUMMARY_ANTIGEN}_pct"])
+    district_extremes = _best_worst_district(districts_current)
+    district_compliance = _compliance_counts(districts_current[f"{SUMMARY_ANTIGEN}_pct_reported"])
 
     fic_pct = prov["fic_pct_reported"]
     insight_parts = []
@@ -162,11 +163,11 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
             f"({antigen_extremes['best']['pct']:.1f}%); {antigen_extremes['worst']['antigen']} the weakest "
             f"({antigen_extremes['worst']['pct']:.1f}%)."
         )
-    if compliance["total_with_data"]:
+    if district_compliance["total_with_data"]:
         insight_parts.append(
-            f"{compliance['compliant_pct']:.1f}% of the {compliance['total_with_data']} UCs with a valid "
-            f"FIC figure meet the {COVERAGE_GOOD}% compliance threshold; "
-            f"{compliance['warning'] + compliance['poor']} UC(s) require attention."
+            f"{district_compliance['good']} of the {district_compliance['total_with_data']} districts "
+            f"({district_compliance['compliant_pct']:.1f}%) have reached the {COVERAGE_GOOD}% FIC target; "
+            f"{district_compliance['warning'] + district_compliance['poor']} district(s) require intervention."
         )
 
     return {
@@ -179,8 +180,8 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
         "dropout_pct": _r(prov["dropout_pct_reported"]),
         "dropout_rag": dropout_rag(prov["dropout_pct_reported"]),
         "best_antigen": antigen_extremes["best"], "worst_antigen": antigen_extremes["worst"],
-        "best_uc": uc_extremes["best"], "worst_uc": uc_extremes["worst"],
-        "uc_compliance": compliance,
+        "best_district": district_extremes["best"], "worst_district": district_extremes["worst"],
+        "district_compliance": district_compliance,
         "insight": " ".join(insight_parts) or "Not enough valid data this period to generate an insight.",
     }
 
@@ -194,8 +195,8 @@ def build_uc_compliance(uc_all: pd.DataFrame, period_id: str) -> dict:
 
     col = f"{SUMMARY_ANTIGEN}_pct"
     valid = uc_period[uc_period[col].notna()]
-    # Same reasoning as _best_worst_uc: a UC above the outlier threshold is a
-    # known data-entry artifact (see clean.py's is_outlier flag), not a real
+    # A UC above the outlier threshold is a known data-entry artifact
+    # (see clean.py's is_outlier flag), not a real
     # top performer -- excluded from "top" only, since low values are never
     # outliers and "bottom" has no equivalent problem.
     top_ranked = valid[valid[col] <= OUTLIER_PCT_THRESHOLD].sort_values(col, ascending=False)

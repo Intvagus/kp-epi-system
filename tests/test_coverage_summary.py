@@ -93,7 +93,7 @@ def test_all_json_types_are_native(summary):
     # floats/ints survive a round-trip instead.
     payload = json.loads(json.dumps(summary, default=str))
     assert isinstance(payload["periods"]["monthly"]["executive"]["fic_pct"], float)
-    assert isinstance(payload["periods"]["monthly"]["executive"]["uc_compliance"]["good"], int)
+    assert isinstance(payload["periods"]["monthly"]["executive"]["district_compliance"]["good"], int)
 
 
 def test_best_antigen_can_differ_between_monthly_and_cumulative(summary):
@@ -102,6 +102,26 @@ def test_best_antigen_can_differ_between_monthly_and_cumulative(summary):
     # exactly why these two views must never be merged into one.
     assert summary["periods"]["monthly"]["executive"]["best_antigen"]["antigen"] == "BCG"
     assert summary["periods"]["cumulative"]["executive"]["best_antigen"]["antigen"] == "Penta1"
+
+
+def test_executive_summary_has_district_level_extremes_not_uc_level(summary):
+    exe = summary["periods"]["monthly"]["executive"]
+    assert "best_district" in exe and "worst_district" in exe
+    assert "district_compliance" in exe
+    # The old UC-level executive fields are gone -- Section 2 (uc_compliance,
+    # a sibling key of "executive") is the only place UC-level detail lives.
+    assert "best_uc" not in exe and "worst_uc" not in exe and "uc_compliance" not in exe
+    assert exe["best_district"]["district"]
+    assert exe["worst_district"]["district"]
+
+
+def test_district_compliance_counts_are_over_36_real_districts(summary):
+    # 36 real districts (KP Province Total excluded) all have a valid FIC
+    # figure at district level (unlike UCs, no zero-target districts here).
+    exe = summary["periods"]["monthly"]["executive"]
+    dc = exe["district_compliance"]
+    assert dc["total_with_data"] == 36
+    assert dc["good"] + dc["warning"] + dc["poor"] == 36
 
 
 def test_cumulative_has_its_own_full_six_sections(summary):

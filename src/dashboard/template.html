@@ -145,6 +145,17 @@
     border-radius: 6px; font-size: 12px; line-height: 1.5; z-index: 100; max-width: 240px; display: none;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
+  .mini-map-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 10px;
+  }
+  .mini-map-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: #fff;
+  }
+  .mini-map-card h4 {
+    margin: 0 0 6px 0; font-size: 12.5px; font-weight: 700; color: var(--navy); text-align: center;
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .mini-map-card .map-wrap svg { width: 100%; height: auto; display: block; }
   .disease-tag { display: inline-block; width: 4px; height: 16px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .expand-row td { background: #fafbfe; padding: 10px 14px; }
   .mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; font-size: 12px; }
@@ -238,7 +249,7 @@
     periodId: DATA.default_period_id,
     coverageLevel: "district", coverageDistrict: null, coverageTehsil: null,
     coverageSort: { col: "fic_pct_reported", dir: "desc" }, coverageSearch: "",
-    qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC", mapAntigen: "FIC",
+    qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC",
     coveragePeriodKind: "monthly",
   };
   periodSelect.addEventListener("change", function () {
@@ -444,57 +455,62 @@
     return { width: W, height: H, geometryPath: geometryPath };
   })();
 
-  function districtMapHtml(cs, kind) {
+  // One compact map per antigen, so a decision-maker can compare districts
+  // across the whole antigen schedule at a glance instead of switching a
+  // single map back and forth. Every mini-map reuses the same MAP_PROJECTION
+  // (computed once above) and the same district_map figures already
+  // computed server-side -- only the SVG markup is built per antigen.
+  function antigenMapsGridHtml(cs, kind) {
     if (cs.status !== "ok" || !cs.district_map || cs.district_map.unmapped_districts.length) return "";
-    return '<div class="card"><h2>🗺️ District Coverage Map</h2>' +
-      '<p class="section-note">Each district shaded by antigen coverage for ' + cs.executive.current_period_label +
+    return '<div class="card"><h2>🗺️ Antigen-wise District Coverage Maps</h2>' +
+      '<p class="section-note">Each district shaded by coverage for ' + cs.executive.current_period_label +
         '. A few districts share one boundary with recently-created sister districts (see hover text) -- the shaded figure is their combined coverage.</p>' +
-      '<div id="map-mount-' + kind + '"></div>' +
-    '</div>';
-  }
-
-  // Owns the antigen selector, the SVG, and the legend together and
-  // rebuilds all three on every antigen change (same pattern as
-  // renderTargetGapSection) -- a listener attached to a node that gets
-  // thrown away each render never accumulates.
-  function renderDistrictMap(cs, kind) {
-    var mount = document.getElementById("map-mount-" + kind);
-    if (!mount) return;
-    var antigens = cs.antigen_analysis.map(function (a) { return a.antigen; });
-    if (antigens.indexOf(state.mapAntigen) === -1) state.mapAntigen = "FIC";
-    var options = antigens.map(function (a) {
-      return '<option value="' + a + '"' + (a === state.mapAntigen ? " selected" : "") + '>' + a + '</option>';
-    }).join("");
-
-    var features = cs.district_map.features;
-    var paths = KP_GEO.features.map(function (f) {
-      var name = f.properties.shapeName;
-      var entry = features[name];
-      var d = MAP_PROJECTION.geometryPath(f.geometry);
-      var stat = entry ? entry.by_antigen[state.mapAntigen] : null;
-      var fill = "#d0d5dd";
-      if (stat && stat.pct !== null) fill = ragColor(stat.rag);
-      var label = entry ? entry.component_districts.join(" + ") : name;
-      var detail = stat && stat.pct !== null
-        ? label + "<br>" + state.mapAntigen + ": " + stat.pct.toFixed(1) + "% (" + stat.vaccinated.toLocaleString() + " of " + stat.target.toLocaleString() + ")"
-        : label + "<br>No data";
-      return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
-    }).join("");
-
-    mount.innerHTML =
-      '<div class="controls-row"><label style="font-size:12.5px;">Antigen: </label><select class="filter-select" id="map-antigen-select-' + kind + '">' + options + '</select></div>' +
-      '<div class="map-wrap"><svg viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '">' + paths + '</svg>' +
-        '<div class="map-tooltip" id="map-tooltip-' + kind + '"></div></div>' +
+      '<div class="mini-map-grid" id="map-grid-' + kind + '"></div>' +
       '<div class="map-legend">' +
         '<span><span class="swatch" style="background:#1e8e3e;"></span>Good (&ge;' + CFG.coverage_good + '%)</span>' +
         '<span><span class="swatch" style="background:#b06a00;"></span>Needs monitoring</span>' +
         '<span><span class="swatch" style="background:#c5221f;"></span>Critical (&lt;' + CFG.coverage_warning + '%)</span>' +
         '<span><span class="swatch" style="background:#d0d5dd;"></span>No data</span>' +
       '</div>' +
-      '<p class="section-note" style="margin-top:6px;">District boundaries: geoBoundaries.org (CC-BY 4.0)</p>';
+      '<p class="section-note" style="margin-top:6px;">District boundaries: geoBoundaries.org (CC-BY 4.0)</p>' +
+      '<div class="map-tooltip" id="map-tooltip-' + kind + '"></div>' +
+    '</div>';
+  }
+
+  function renderAntigenMapsGrid(cs, kind) {
+    var grid = document.getElementById("map-grid-" + kind);
+    if (!grid) return;
+    // Fixed antigen order (matches the source sheet's own column order, via
+    // target_gap's insertion order) rather than best-to-worst, so the grid
+    // layout doesn't reshuffle from one period to the next.
+    var antigens = Object.keys(cs.target_gap.by_antigen);
+    var features = cs.district_map.features;
+
+    grid.innerHTML = antigens.map(function (antigen) {
+      var paths = KP_GEO.features.map(function (f) {
+        var name = f.properties.shapeName;
+        var entry = features[name];
+        var d = MAP_PROJECTION.geometryPath(f.geometry);
+        var stat = entry ? entry.by_antigen[antigen] : null;
+        var fill = "#d0d5dd";
+        var status = "No data";
+        if (stat && stat.pct !== null) {
+          fill = ragColor(stat.rag);
+          status = stat.pct >= CFG.coverage_good ? "Achieved" : "Below Target";
+        }
+        var label = entry ? entry.component_districts.join(" + ") : name;
+        var detail = stat && stat.pct !== null
+          ? label + "<br>" + antigen + ": " + stat.pct.toFixed(1) + "% (target " + CFG.coverage_good + "%)<br>" +
+            stat.vaccinated.toLocaleString() + " of " + stat.target.toLocaleString() + " vaccinated &mdash; " + status
+          : label + "<br>" + antigen + ": No data";
+        return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
+      }).join("");
+      return '<div class="mini-map-card"><h4>' + antigen + '</h4>' +
+        '<div class="map-wrap"><svg viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '">' + paths + '</svg></div></div>';
+    }).join("");
 
     var tooltip = document.getElementById("map-tooltip-" + kind);
-    mount.querySelectorAll("path.district-shape").forEach(function (path) {
+    grid.querySelectorAll("path.district-shape").forEach(function (path) {
       path.addEventListener("mousemove", function (e) {
         tooltip.innerHTML = path.dataset.detail;
         tooltip.style.display = "block";
@@ -502,11 +518,6 @@
         tooltip.style.top = (e.clientY + 14) + "px";
       });
       path.addEventListener("mouseleave", function () { tooltip.style.display = "none"; });
-    });
-
-    document.getElementById("map-antigen-select-" + kind).addEventListener("change", function (e) {
-      state.mapAntigen = e.target.value;
-      renderDistrictMap(cs, kind);
     });
   }
 
@@ -525,10 +536,14 @@
       kpiCard("Dropout Rate (Penta1&rarr;Penta3)", fmtPct(exe.dropout_pct), "Province-wide", exe.dropout_rag),
       kpiCard("Best Performing Antigen", exe.best_antigen ? exe.best_antigen.antigen : "—", exe.best_antigen ? fmtPct(exe.best_antigen.pct) : "", "good"),
       kpiCard("Antigen Requiring Attention", exe.worst_antigen ? exe.worst_antigen.antigen : "—", exe.worst_antigen ? fmtPct(exe.worst_antigen.pct) : "", "poor"),
-      kpiCard("Top Performing UC", exe.best_uc ? exe.best_uc.uc_name : "—", exe.best_uc ? exe.best_uc.district + " &middot; " + fmtPct(exe.best_uc.pct) : "", "good"),
-      kpiCard("UC Requiring Intervention", exe.worst_uc ? exe.worst_uc.uc_name : "—", exe.worst_uc ? exe.worst_uc.district + " &middot; " + fmtPct(exe.worst_uc.pct) : "", "poor"),
-      kpiCard("UCs Achieving Target Coverage", exe.uc_compliance.compliant_pct !== null ? exe.uc_compliance.compliant_pct.toFixed(1) + "%" : "—",
-        exe.uc_compliance.good + " of " + exe.uc_compliance.total_with_data + " UCs (FIC &ge; " + CFG.coverage_good + "%)"),
+      kpiCard("Top Performing District", exe.best_district ? exe.best_district.district : "—",
+        exe.best_district ? "FIC " + fmtPct(exe.best_district.pct) + " &middot; " + (exe.best_district.pct - CFG.coverage_good >= 0 ? "+" : "") + (exe.best_district.pct - CFG.coverage_good).toFixed(1) + " pts vs " + CFG.coverage_good + "% target" : "", "good"),
+      kpiCard("Lowest Performing District", exe.worst_district ? exe.worst_district.district : "—",
+        exe.worst_district ? "FIC " + fmtPct(exe.worst_district.pct) + " &middot; " + (exe.worst_district.pct - CFG.coverage_good).toFixed(1) + " pts vs " + CFG.coverage_good + "% target" : "", "poor"),
+      kpiCard("Districts Achieving Target Coverage", exe.district_compliance.total_with_data ? exe.district_compliance.good : "—",
+        exe.district_compliance.total_with_data ? "of " + exe.district_compliance.total_with_data + " districts (FIC &ge; " + CFG.coverage_good + "%)" : "", "good"),
+      kpiCard("Districts Requiring Intervention", exe.district_compliance.total_with_data ? (exe.district_compliance.warning + exe.district_compliance.poor) : "—",
+        exe.district_compliance.total_with_data ? "of " + exe.district_compliance.total_with_data + " districts (FIC &lt; " + CFG.coverage_good + "%)" : "", "poor"),
     ];
     return '<div class="card"><h2>1. Coverage Summary &mdash; Executive Overview</h2>' +
       '<div class="grid kpi-row">' + kpis.join("") + '</div>' +
@@ -747,7 +762,7 @@
 
     el.innerHTML = pillsHtml +
       executiveOverviewHtml(cs, kind) +
-      districtMapHtml(cs, kind) +
+      antigenMapsGridHtml(cs, kind) +
       ucComplianceHtml(cs, kind) +
       antigenAnalysisHtml(cs, kind) +
       '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
@@ -764,7 +779,7 @@
       });
     });
 
-    renderDistrictMap(cs, kind);
+    renderAntigenMapsGrid(cs, kind);
     renderUcComplianceChart(cs);
     renderAntigenAnalysisChart(cs);
     renderTargetGapChart(cs, kind);

@@ -10,7 +10,11 @@
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
-  Coverage tab has a district-level choropleth map (plain inline SVG, no
+  Coverage tab's Executive Overview is district-level (Top/Lowest Performing
+  District, Districts Achieving Target Coverage, Districts Requiring
+  Intervention -- UC-level detail lives only in its own "UC Compliance
+  Analysis" section, never mixed into the executive cards). Right below it,
+  a grid of one small choropleth map per antigen (plain inline SVG, no
   mapping library, no basemap tiles -- stays fully offline) using
   `src/dashboard/kp_districts.geojson` (District/ADM2 boundaries, sourced
   once from geoBoundaries, CC-BY 4.0, checked into the repo). Newer
