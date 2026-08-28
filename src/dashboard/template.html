@@ -136,6 +136,7 @@
   .period-pill.active { background: var(--navy); color: #fff; border-color: var(--navy); }
   .map-wrap { position: relative; }
   .map-wrap svg { width: 100%; height: auto; display: block; }
+  .map-wrap.single-map { max-width: 520px; margin: 0 auto; }
   .map-wrap path.district-shape {
     stroke: #fff; stroke-width: 1; cursor: pointer; transition: opacity .1s;
   }
@@ -737,6 +738,69 @@
 
     var tooltip = document.getElementById("map-tooltip-" + kind);
     grid.querySelectorAll("path.district-shape").forEach(function (path) {
+      path.addEventListener("mousemove", function (e) {
+        tooltip.innerHTML = path.dataset.detail;
+        tooltip.style.display = "block";
+        tooltip.style.left = (e.clientX + 14) + "px";
+        tooltip.style.top = (e.clientY + 14) + "px";
+      });
+      path.addEventListener("mouseleave", function () { tooltip.style.display = "none"; });
+    });
+  }
+
+  // ---- Generic single-district map (Monitoring domain: RCA / Supervisory
+  // Checklist activity, one map each -- unlike the Coverage tab's per-antigen
+  // grid, there's just one meaningful value per district here, not several
+  // antigens to compare). Reuses the same MAP_PROJECTION/KP_GEO computed
+  // once above; a district with no value is shaded "no data" gray rather
+  // than guessed at, same as the Coverage maps. Color is a 3-step relative
+  // scale (Low/Medium/High vs. the highest value actually present in this
+  // upload) -- there's no external target for "how much RCA/supervisory
+  // activity should a district have", so the scale is relative to the data
+  // itself, not an invented absolute threshold.
+  function activityColor(value, maxValue) {
+    if (value === null || value === undefined || !maxValue) return "#d0d5dd";
+    var ratio = value / maxValue;
+    if (ratio >= 0.66) return "#0f766e";
+    if (ratio >= 0.33) return "#5ba58f";
+    return "#a8d5c7";
+  }
+
+  function singleDistrictMapHtml(svgId, tooltipId, title, note) {
+    return '<h3>' + title + '</h3>' +
+      (note ? '<p class="sub">' + note + '</p>' : '') +
+      '<div class="map-wrap single-map"><svg id="' + svgId + '" viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '"></svg></div>' +
+      '<div class="map-legend">' +
+        '<span><span class="swatch" style="background:#0f766e;"></span>High</span>' +
+        '<span><span class="swatch" style="background:#5ba58f;"></span>Medium</span>' +
+        '<span><span class="swatch" style="background:#a8d5c7;"></span>Low</span>' +
+        '<span><span class="swatch" style="background:#d0d5dd;"></span>No data</span>' +
+      '</div>' +
+      '<div class="map-tooltip" id="' + tooltipId + '"></div>';
+  }
+
+  function renderSingleDistrictMap(svgId, tooltipId, districtMap, valueFn, detailFn) {
+    var svg = document.getElementById(svgId);
+    if (!svg || !districtMap) return;
+    var features = districtMap.features || {};
+    var maxValue = 0;
+    Object.keys(features).forEach(function (name) {
+      var v = valueFn(features[name]);
+      if (v !== null && v !== undefined && v > maxValue) maxValue = v;
+    });
+    svg.innerHTML = KP_GEO.features.map(function (f) {
+      var name = f.properties.shapeName;
+      var entry = features[name];
+      var d = MAP_PROJECTION.geometryPath(f.geometry);
+      var value = entry ? valueFn(entry) : null;
+      var fill = activityColor(value, maxValue);
+      var label = entry ? entry.component_districts.join(" + ") : name;
+      var detail = entry ? detailFn(label, entry) : (label + "<br>No data");
+      return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
+    }).join("");
+
+    var tooltip = document.getElementById(tooltipId);
+    svg.querySelectorAll("path.district-shape").forEach(function (path) {
       path.addEventListener("mousemove", function (e) {
         tooltip.innerHTML = path.dataset.detail;
         tooltip.style.display = "block";
@@ -1705,6 +1769,18 @@
       trendAutoInsight = "Busiest day: " + trendPeak.visit_date + " with " + fmtNum(trendPeak.children_assessed) + " children assessed.";
     }
 
+    var mapInsightId = "monitoring-rca-map-" + (rca.reporting_window || "");
+    var mapDistricts = rca.district_map ? Object.keys(rca.district_map.features) : [];
+    var mapTopDistrict = mapDistricts.reduce(function (best, name) {
+      var v = rca.district_map.features[name].children_assessed;
+      return (!best || v > rca.district_map.features[best].children_assessed) ? name : best;
+    }, null);
+    var mapAutoInsight = mapTopDistrict
+      ? mapTopDistrict + " had the most RCA activity (" + fmtNum(rca.district_map.features[mapTopDistrict].children_assessed) + " children assessed across " +
+        fmtNum(rca.district_map.features[mapTopDistrict].rca_visits) + " visit(s))." +
+        (rca.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + rca.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No district data available to map.";
+
     var html =
       '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
         '<p class="sub">Community-based, child-level spot checks of vaccination status.</p></div>' +
@@ -1713,6 +1789,10 @@
         editableInsight(overviewInsightId, overviewAutoInsight) +
         zdAnomalyHtml +
       '</div>' +
+      (mapDistricts.length ? '<div class="card"><h2>🗺️ RCA Coverage Map</h2>' +
+        singleDistrictMapHtml("map-rca", "map-tooltip-rca", "Children assessed by district", "District boundaries: geoBoundaries.org (CC-BY 4.0)") +
+        editableInsight(mapInsightId, mapAutoInsight) +
+      '</div>' : "") +
       '<div class="card"><h2>Antigen-wise Vaccination Status (field-verified)</h2>' +
         '<div class="chart-wrap tall"><canvas id="chart-rca-antigen"></canvas></div>' +
         '<p class="sub">Children vaccinated, of those for whom each antigen was applicable by age (excludes children not yet due).</p>' +
@@ -1757,6 +1837,15 @@
       destroyChart("rcaAntigen"); destroyChart("rcaAge"); destroyChart("rcaSex"); destroyChart("rcaAreaType");
       destroyChart("rcaHtr"); destroyChart("rcaHrp"); destroyChart("rcaDesignation"); destroyChart("rcaAgency");
       destroyChart("rcaSource"); destroyChart("rcaInfoSource"); destroyChart("rcaReasons"); destroyChart("rcaTrend");
+
+      if (mapDistricts.length) {
+        renderSingleDistrictMap("map-rca", "map-tooltip-rca", rca.district_map,
+          function (entry) { return entry.children_assessed; },
+          function (label, entry) {
+            return label + "<br>Children assessed: " + fmtNum(entry.children_assessed) + "<br>RCA visits: " + fmtNum(entry.rca_visits) +
+              "<br>Zero-dose: " + fmtNum(entry.zero_dose_count) + " (" + fmtPct(entry.zero_dose_pct) + ")";
+          });
+      }
 
       charts.rcaAntigen = new Chart(document.getElementById("chart-rca-antigen"), {
         type: "bar",
@@ -1957,6 +2046,18 @@
         rankings.bottom[rankings.bottom.length - 1].health_facility + " (" + ratePct(rankings.bottom[rankings.bottom.length - 1].pct) + ")."
       : "";
 
+    var mapInsightId = "monitoring-supervisory-map-" + (sup.reporting_window || "");
+    var mapDistricts = sup.district_map ? Object.keys(sup.district_map.features) : [];
+    var mapTopDistrict = mapDistricts.reduce(function (best, name) {
+      var v = sup.district_map.features[name].visits;
+      return (!best || v > sup.district_map.features[best].visits) ? name : best;
+    }, null);
+    var mapAutoInsight = mapTopDistrict
+      ? mapTopDistrict + " had the most supervisory activity (" + fmtNum(sup.district_map.features[mapTopDistrict].visits) + " visit(s) to " +
+        fmtNum(sup.district_map.features[mapTopDistrict].facilities) + " facilities)." +
+        (sup.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + sup.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No district data available to map.";
+
     var html =
       '<div class="section-divider"><div class="line"></div><div class="label">Supervisory Checklist</div><div class="line"></div></div>' +
       '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
@@ -1966,6 +2067,10 @@
         editableInsight(overviewInsightId, overviewAutoInsight) +
         riskHtml +
       '</div>' +
+      (mapDistricts.length ? '<div class="card"><h2>🗺️ Supervisory Checklist Coverage Map</h2>' +
+        singleDistrictMapHtml("map-sup", "map-tooltip-sup", "Supervisory visits by district", "District boundaries: geoBoundaries.org (CC-BY 4.0)") +
+        editableInsight(mapInsightId, mapAutoInsight) +
+      '</div>' : "") +
       '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat +
         editableInsight(scoresInsightId, scoresAutoInsight) +
       '</div>' +
@@ -1994,6 +2099,15 @@
 
     return { html: html, build: function () {
       destroyChart("supCompliance"); destroyChart("supSiteType"); destroyChart("supTrend");
+
+      if (mapDistricts.length) {
+        renderSingleDistrictMap("map-sup", "map-tooltip-sup", sup.district_map,
+          function (entry) { return entry.visits; },
+          function (label, entry) {
+            return label + "<br>Supervisory visits: " + fmtNum(entry.visits) + "<br>Facilities: " + fmtNum(entry.facilities) +
+              "<br>Operations Quality: " + ratePct(entry.score_operations_quality);
+          });
+      }
 
       charts.supCompliance = new Chart(document.getElementById("chart-sup-compliance"), {
         type: "bar",

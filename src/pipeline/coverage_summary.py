@@ -13,7 +13,7 @@ the source files, so nothing here fabricates them.
 """
 import pandas as pd
 
-from .config import COVERAGE_GOOD, COVERAGE_WARNING, OUTLIER_PCT_THRESHOLD
+from .config import COVERAGE_GOOD, COVERAGE_WARNING, DISTRICT_TO_BOUNDARY, OUTLIER_PCT_THRESHOLD
 from .indicators import coverage_rag, dropout_rag
 
 # District/Tehsil-level antigens that have both a raw count and a target in
@@ -39,32 +39,9 @@ UC_ANTIGENS = [
 # and is already what the existing Overview tab ranks districts by.
 SUMMARY_ANTIGEN = "fic"
 
-# Maps this project's 36 real district names (KP Province Total excluded --
-# it's a province-wide aggregate row, not a district) to the boundary
-# polygon name in dashboard/kp_districts.geojson (District/ADM2 boundaries
-# for Pakistan, sourced from geoBoundaries -- https://www.geoboundaries.org,
-# CC-BY 4.0). Several of our districts are newer administrative sub-splits
-# (Chitral, Kohistan, Kurram, and South Waziristan were each divided into
-# 2-3 districts more recently than this boundary set) that don't have their
-# own separate polygon yet -- these are combined onto their shared parent
-# polygon in build_district_map, with the mapped figure computed by SUMMING
-# raw counts across the sub-districts, the same rule every other aggregate
-# in this pipeline uses (sum raw counts, never average percentages -- see
-# indicators.py's module docstring). Verified exhaustive: every one of the
-# 36 real district names has an entry here, and every boundary name on the
-# right exists in kp_districts.geojson (see tests/test_coverage_summary.py).
-DISTRICT_TO_BOUNDARY = {
-    "Abbottabad": "Abbottabad", "Bajaur": "Bajaur", "Bannu": "Bannu", "Battagram": "Battagram",
-    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral", "Chitral Upper": "Chitral",
-    "D.I. Khan": "Dera Ismail Khan", "Dir Lower": "Lower Dir", "Dir Upper": "Upper Dir",
-    "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber", "Kohat": "Kohat",
-    "Kohistan Lower": "Kohistan", "Kohistan Upper": "Kohistan", "Kolai Palas Kohistan": "Kohistan",
-    "Kurram Lower and Central": "Kurram", "Kurram Upper": "Kurram", "Lakki Marwat": "Lakki Marwat",
-    "Malakand": "Malakand", "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
-    "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
-    "Peshawar": "Peshawar", "SW Mehsud Belt": "South Waziristan", "SW Wazir Belt": "South Waziristan",
-    "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
-}
+# DISTRICT_TO_BOUNDARY (district name -> kp_districts.geojson boundary
+# polygon name) now lives in config.py, shared with the Monitoring domain's
+# district maps.
 
 
 def _r(v, nd: int = 1):

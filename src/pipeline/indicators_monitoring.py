@@ -7,7 +7,7 @@ recomputing themselves.
 import numpy as np
 import pandas as pd
 
-from .config import RCA_VACCINE_ANTIGENS
+from .config import DISTRICT_TO_BOUNDARY, RCA_VACCINE_ANTIGENS
 from .clean_monitoring import RCA_ANTIGEN_FIELD_MAP, SUPERVISORY_YES_NO_FIELDS
 
 
@@ -92,6 +92,33 @@ def rca_district_breakdown(df: pd.DataFrame) -> list[dict]:
             "zero_dose_pct": (zero_dose / len(assessed) * 100) if len(assessed) else None,
         })
     return sorted(rows, key=lambda r: r["children_assessed"], reverse=True)
+
+
+def rca_district_map(df: pd.DataFrame) -> dict:
+    """Per-boundary-polygon RCA activity for the district choropleth map,
+    reusing config.DISTRICT_TO_BOUNDARY (the same mapping the Coverage tab's
+    map uses) -- a handful of newer sub-split districts share one older
+    boundary polygon, combined here by summing raw counts, never averaging
+    percentages, same rule as every other aggregate in this pipeline. Any
+    RCA district name not found in that mapping is reported as unmapped
+    (flagged, not guessed at) rather than silently dropped from the map."""
+    unmapped = sorted(set(df["district"].unique()) - set(DISTRICT_TO_BOUNDARY))
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = df[df["district"].isin(component_districts)]
+        if rows.empty:
+            continue
+        assessed = rows[rows["is_penta1_assessed"]]
+        zero_dose = int(assessed["is_zero_dose"].sum())
+        by_boundary[boundary_name] = {
+            "component_districts": sorted(rows["district"].unique().tolist()),
+            "children_assessed": int(len(rows)),
+            "rca_visits": int(rows["record_id"].nunique()),
+            "zero_dose_count": zero_dose,
+            "zero_dose_pct": (zero_dose / len(assessed) * 100) if len(assessed) else None,
+        }
+    return {"unmapped_districts": unmapped, "features": by_boundary}
 
 
 def rca_age_group_breakdown(df: pd.DataFrame) -> dict:
@@ -329,6 +356,30 @@ def supervisory_district_breakdown(df: pd.DataFrame) -> list[dict]:
             row[field] = float(valid.mean()) if len(valid) else None
         rows.append(row)
     return sorted(rows, key=lambda r: r["visits"], reverse=True)
+
+
+def supervisory_district_map(df: pd.DataFrame) -> dict:
+    """Per-boundary-polygon Supervisory Checklist activity for the district
+    choropleth map -- same DISTRICT_TO_BOUNDARY combining/summing rule as
+    rca_district_map. Composite scores are averaged (they're already
+    percentages, not raw counts, so there's nothing to sum)."""
+    unmapped = sorted(set(df["district"].unique()) - set(DISTRICT_TO_BOUNDARY))
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = df[df["district"].isin(component_districts)]
+        if rows.empty:
+            continue
+        entry = {
+            "component_districts": sorted(rows["district"].unique().tolist()),
+            "visits": int(len(rows)),
+            "facilities": int(rows["health_facility"].nunique(dropna=True)),
+        }
+        for field, label in SCORE_LABELS.items():
+            valid = rows[field].dropna()
+            entry[field] = float(valid.mean()) if len(valid) else None
+        by_boundary[boundary_name] = entry
+    return {"unmapped_districts": unmapped, "features": by_boundary}
 
 
 def supervisory_facility_rankings(df: pd.DataFrame, score_field: str, n: int = 5) -> dict:

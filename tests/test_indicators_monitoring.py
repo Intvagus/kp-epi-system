@@ -58,6 +58,13 @@ def test_rca_zero_dose_summary_excludes_unassessed(rca):
     assert zero_dose["zero_dose_pct"] == 0.0
 
 
+def test_rca_district_map_has_no_unmapped_districts(rca):
+    dmap = ind.rca_district_map(rca)
+    assert dmap["unmapped_districts"] == []
+    assert dmap["features"]["Abbottabad"]["children_assessed"] == 340
+    assert dmap["features"]["Abbottabad"]["rca_visits"] == 34
+
+
 def test_rca_district_breakdown_covers_all_districts_present(rca):
     rows = ind.rca_district_breakdown(rca)
     assert sum(r["children_assessed"] for r in rows) == len(rca)
@@ -125,3 +132,10 @@ def test_supervisory_facility_rankings_top_and_bottom_are_disjoint(sup):
 def test_supervisory_district_breakdown_visit_counts_sum_to_total(sup):
     rows = ind.supervisory_district_breakdown(sup)
     assert sum(r["visits"] for r in rows) == len(sup)
+
+
+def test_supervisory_district_map_has_no_unmapped_districts(sup):
+    dmap = ind.supervisory_district_map(sup)
+    assert dmap["unmapped_districts"] == []
+    assert dmap["features"]["Abbottabad"]["visits"] == 63
+    assert dmap["features"]["Abbottabad"]["facilities"] == 60

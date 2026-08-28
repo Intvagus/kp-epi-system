@@ -77,6 +77,36 @@ PROVINCE_TOTAL_NAME = "KP Province Total"
 
 JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 
+# Maps this project's 36 real Coverage-file district names (KP Province Total
+# excluded -- it's a province-wide aggregate row, not a district) to the
+# boundary polygon name in dashboard/kp_districts.geojson (District/ADM2
+# boundaries for Pakistan, sourced from geoBoundaries --
+# https://www.geoboundaries.org, CC-BY 4.0). Several of our districts are
+# newer administrative sub-splits (Chitral, Kohistan, Kurram, and South
+# Waziristan were each divided into 2-3 districts more recently than this
+# boundary set) that don't have their own separate polygon yet -- these are
+# combined onto their shared parent polygon by the map-builder, with the
+# mapped figure computed by SUMMING raw counts across the sub-districts,
+# never by averaging percentages -- see indicators.py's module docstring.
+# Verified exhaustive for the Coverage domain: every one of the 36 real
+# district names has an entry here, and every boundary name on the right
+# exists in kp_districts.geojson (see tests/test_coverage_summary.py).
+# Shared with the Monitoring domain's district maps (run_monitoring.py) --
+# a Monitoring district name that isn't spelled the same way here falls out
+# as "unmapped" (flagged, not guessed at), same as any other domain.
+DISTRICT_TO_BOUNDARY = {
+    "Abbottabad": "Abbottabad", "Bajaur": "Bajaur", "Bannu": "Bannu", "Battagram": "Battagram",
+    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral", "Chitral Upper": "Chitral",
+    "D.I. Khan": "Dera Ismail Khan", "Dir Lower": "Lower Dir", "Dir Upper": "Upper Dir",
+    "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber", "Kohat": "Kohat",
+    "Kohistan Lower": "Kohistan", "Kohistan Upper": "Kohistan", "Kolai Palas Kohistan": "Kohistan",
+    "Kurram Lower and Central": "Kurram", "Kurram Upper": "Kurram", "Lakki Marwat": "Lakki Marwat",
+    "Malakand": "Malakand", "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
+    "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
+    "Peshawar": "Peshawar", "SW Mehsud Belt": "South Waziristan", "SW Wazir Belt": "South Waziristan",
+    "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
+}
+
 # --- VPD surveillance (domain 2) ---
 # Case-level line lists, one workbook per reporting run (filename carries the week
 # range, e.g. "KP VPDs Line List Week 1-32,2026.xlsx"). Confirmed with the user:
