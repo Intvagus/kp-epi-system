@@ -233,9 +233,14 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
           f"{len(payload['quality']['coverage_flags'])} quality flags)")
 
     chartjs_source = (DASHBOARD_DIR / "chart.umd.min.js").read_text(encoding="utf-8")
-    # District/ADM2 boundaries for the Coverage tab's choropleth map, sourced
-    # once from geoBoundaries (CC-BY 4.0) and checked into the repo -- never
-    # fetched at build or view time, so the dashboard stays fully offline.
+    # District/ADM2 boundaries for the Coverage/Monitoring choropleth maps.
+    # Traced from the user-provided reference map (KP_MAP_1.pptx) rather than
+    # the earlier geoBoundaries.org set, since it's a real per-district
+    # polygon for every current sub-split (Chitral, Kohistan, Kurram, South
+    # Waziristan) instead of one shared older boundary -- see
+    # config.DISTRICT_TO_BOUNDARY for the district-name mapping and the one
+    # flagged naming assumption. Checked into the repo, never fetched at
+    # build or view time, so the dashboard stays fully offline.
     kp_geojson = (DASHBOARD_DIR / "kp_districts.geojson").read_text(encoding="utf-8")
     template = (DASHBOARD_DIR / "template.html").read_text(encoding="utf-8")
 

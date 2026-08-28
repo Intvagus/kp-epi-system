@@ -253,20 +253,20 @@ def test_district_to_boundary_names_all_exist_in_the_geojson_file():
     assert set(DISTRICT_TO_BOUNDARY.values()) <= boundary_names_in_file
 
 
-def test_district_map_kohistan_is_summed_not_averaged(district_and_uc):
-    # Kohistan combines 3 real districts (Kohistan Lower, Kohistan Upper,
-    # Kolai Palas Kohistan) -- confirm the combined FIC vaccinated count on
-    # the map equals the sum of the three, not an average of percentages.
+def test_district_map_kohistan_splits_are_separate_boundaries(district_and_uc):
+    # The reference map (KP_MAP_1.pptx) gives every current sub-split its own
+    # real boundary polygon -- Kohistan Lower/Upper and Kolai Palas Kohistan
+    # are 3 separate map features now, not combined onto one shared "Kohistan"
+    # polygon (that was the old geoBoundaries.org set's limitation).
     district_all, _ = district_and_uc
     from src.pipeline.coverage_summary import build_district_map
     dmap = build_district_map(district_all, "2025-12")
-    kohistan = dmap["features"]["Kohistan"]
-    assert set(kohistan["component_districts"]) == {"Kohistan Lower", "Kohistan Upper", "Kolai Palas Kohistan"}
-
-    rows = district_all[(district_all["period_id"] == "2025-12") &
-                         (district_all["district"].isin(kohistan["component_districts"]))]
-    expected_vaccinated = int(rows["fic_n"].sum())
-    expected_target = int(rows["target_surviving_infants"].sum())
-    assert kohistan["by_antigen"]["FIC"]["vaccinated"] == expected_vaccinated
-    assert kohistan["by_antigen"]["FIC"]["target"] == expected_target
-    assert kohistan["by_antigen"]["FIC"]["pct"] == pytest.approx(expected_vaccinated / expected_target * 100, abs=0.1)
+    assert "Kohistan" not in dmap["features"]
+    for name in ["Kohistan Lower", "Kohistan Upper", "Kolai Palas Kohistan"]:
+        feature = dmap["features"][name]
+        assert feature["component_districts"] == [name]
+        row = district_all[(district_all["period_id"] == "2025-12") & (district_all["district"] == name)]
+        expected_vaccinated = int(row["fic_n"].sum())
+        expected_target = int(row["target_surviving_infants"].sum())
+        assert feature["by_antigen"]["FIC"]["vaccinated"] == expected_vaccinated
+        assert feature["by_antigen"]["FIC"]["target"] == expected_target

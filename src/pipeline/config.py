@@ -79,15 +79,30 @@ JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 
 # Maps this project's 36 real Coverage-file district names (KP Province Total
 # excluded -- it's a province-wide aggregate row, not a district) to the
-# boundary polygon name in dashboard/kp_districts.geojson (District/ADM2
-# boundaries for Pakistan, sourced from geoBoundaries --
-# https://www.geoboundaries.org, CC-BY 4.0). Several of our districts are
-# newer administrative sub-splits (Chitral, Kohistan, Kurram, and South
-# Waziristan were each divided into 2-3 districts more recently than this
-# boundary set) that don't have their own separate polygon yet -- these are
-# combined onto their shared parent polygon by the map-builder, with the
-# mapped figure computed by SUMMING raw counts across the sub-districts,
-# never by averaging percentages -- see indicators.py's module docstring.
+# boundary polygon name in dashboard/kp_districts.geojson.
+#
+# As of this map's replacement, this is an IDENTITY mapping: every district,
+# including every newer sub-split (Chitral, Kohistan, Kurram, South
+# Waziristan), has its own real, separate boundary polygon -- extracted from
+# the user-provided reference map (KP_MAP_1.pptx, a labeled district-level
+# vector map; geometry traced from its own vector shapes, bezier curves
+# flattened and Douglas-Peucker-simplified for embedding size, district
+# names confirmed by direct visual inspection against the pipeline's own
+# district-name spelling). The dict is kept (rather than dropped for a plain
+# set) because build_district_map()/rca_district_map()/
+# supervisory_district_map() all key off it generically, and because it's
+# still the single place that would need a real combining entry if a future
+# boundary set ever lacked one of these polygons again.
+#
+# One assumption flagged, not guessed at silently: SW Wazir Belt / SW Mehsud
+# Belt (South Waziristan's tribal-belt-based split) are matched to the
+# reference map's "Wazir Belt (Upper)" / "Mehsud Belt (Lower)" shapes by
+# adjacency -- Wazir Belt borders North Waziristan directly in the source
+# map, consistent with it being the northern sub-division; Mehsud Belt does
+# not. The reference map has no per-shape name embedded to confirm this
+# directly (see extraction notes) -- flagged here in case a more direct
+# source of the belt boundary emerges.
+#
 # Verified exhaustive for the Coverage domain: every one of the 36 real
 # district names has an entry here, and every boundary name on the right
 # exists in kp_districts.geojson (see tests/test_coverage_summary.py).
@@ -96,14 +111,14 @@ JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 # as "unmapped" (flagged, not guessed at), same as any other domain.
 DISTRICT_TO_BOUNDARY = {
     "Abbottabad": "Abbottabad", "Bajaur": "Bajaur", "Bannu": "Bannu", "Battagram": "Battagram",
-    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral", "Chitral Upper": "Chitral",
-    "D.I. Khan": "Dera Ismail Khan", "Dir Lower": "Lower Dir", "Dir Upper": "Upper Dir",
+    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral Lower", "Chitral Upper": "Chitral Upper",
+    "D.I. Khan": "D.I. Khan", "Dir Lower": "Dir Lower", "Dir Upper": "Dir Upper",
     "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber", "Kohat": "Kohat",
-    "Kohistan Lower": "Kohistan", "Kohistan Upper": "Kohistan", "Kolai Palas Kohistan": "Kohistan",
-    "Kurram Lower and Central": "Kurram", "Kurram Upper": "Kurram", "Lakki Marwat": "Lakki Marwat",
+    "Kohistan Lower": "Kohistan Lower", "Kohistan Upper": "Kohistan Upper", "Kolai Palas Kohistan": "Kolai Palas Kohistan",
+    "Kurram Lower and Central": "Kurram Lower and Central", "Kurram Upper": "Kurram Upper", "Lakki Marwat": "Lakki Marwat",
     "Malakand": "Malakand", "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
     "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
-    "Peshawar": "Peshawar", "SW Mehsud Belt": "South Waziristan", "SW Wazir Belt": "South Waziristan",
+    "Peshawar": "Peshawar", "SW Mehsud Belt": "SW Mehsud Belt", "SW Wazir Belt": "SW Wazir Belt",
     "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
 }
 

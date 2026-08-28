@@ -809,8 +809,8 @@
   function antigenMapsGridHtml(cs, kind) {
     if (cs.status !== "ok" || !cs.district_map || cs.district_map.unmapped_districts.length) return "";
     return '<div class="card"><h2>🗺️ Antigen-wise District Coverage Maps</h2>' +
-      '<p class="section-note">Each district shaded by coverage for ' + cs.executive.current_period_label +
-        '. A few districts share one boundary with recently-created sister districts (see hover text) -- the shaded figure is their combined coverage. ' +
+      '<p class="section-note">Each of KP\'s 36 districts shaded individually by coverage for ' + cs.executive.current_period_label +
+        ', including every newer sub-split (Chitral, Kohistan, Kurram, South Waziristan) on its own boundary. ' +
         'OPV, PCV, and Rota (including OPV3 and PCV3) have no District-level target in the source file, so they cannot be mapped here -- see ' +
         '"Additional Antigens (Union Council Level Only)" below for those, at UC level.</p>' +
       '<div class="mini-map-grid" id="map-grid-' + kind + '"></div>' +
@@ -820,7 +820,7 @@
         '<span><span class="swatch" style="background:#c5221f;"></span>Critical (&lt;' + CFG.coverage_warning + '%)</span>' +
         '<span><span class="swatch" style="background:#d0d5dd;"></span>No data</span>' +
       '</div>' +
-      '<p class="section-note" style="margin-top:6px;">District boundaries: geoBoundaries.org (CC-BY 4.0)</p>' +
+      '<p class="section-note" style="margin-top:6px;">District boundaries: user-provided reference map.</p>' +
       '<div class="map-tooltip" id="map-tooltip-' + kind + '"></div>' +
     '</div>';
   }
@@ -2023,7 +2023,7 @@
         zdAnomalyHtml +
       '</div>' +
       (mapDistricts.length ? '<div class="card"><h2>🗺️ RCA Coverage Map</h2>' +
-        singleDistrictMapHtml("map-rca", "map-tooltip-rca", "Children assessed by district", "District boundaries: geoBoundaries.org (CC-BY 4.0)") +
+        singleDistrictMapHtml("map-rca", "map-tooltip-rca", "Children assessed by district", "District boundaries: user-provided reference map.") +
         editableInsight(mapInsightId, mapAutoInsight) +
       '</div>' : "") +
       '<div class="card"><h2>Antigen-wise Vaccination Status (field-verified)</h2>' +
@@ -2302,7 +2302,7 @@
         riskHtml +
       '</div>' +
       (mapDistricts.length ? '<div class="card"><h2>🗺️ Supervisory Checklist Coverage Map</h2>' +
-        singleDistrictMapHtml("map-sup", "map-tooltip-sup", "Supervisory visits by district", "District boundaries: geoBoundaries.org (CC-BY 4.0)") +
+        singleDistrictMapHtml("map-sup", "map-tooltip-sup", "Supervisory visits by district", "District boundaries: user-provided reference map.") +
         editableInsight(mapInsightId, mapAutoInsight) +
       '</div>' : "") +
       '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat +

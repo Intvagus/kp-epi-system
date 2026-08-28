@@ -416,10 +416,12 @@ def build_trends(district_all: pd.DataFrame, period_type: str) -> dict:
 def build_district_map(district_all: pd.DataFrame, period_id: str) -> dict:
     """Per-boundary-polygon coverage figures for the district choropleth map.
 
-    Some of our districts are newer sub-splits of the boundary set's older,
-    coarser districts (see DISTRICT_TO_BOUNDARY) -- those are combined onto
-    one polygon by summing raw counts/targets, never by averaging percentages,
-    same rule as every other aggregate in this pipeline."""
+    DISTRICT_TO_BOUNDARY is a 1:1 identity mapping (every district, including
+    every sub-split, has its own real boundary polygon) -- this still groups
+    through it generically rather than assuming that, so a district ever
+    sharing a polygon again would still be summed from raw counts/targets,
+    never averaged from percentages, same rule as every other aggregate in
+    this pipeline."""
     districts = _district_rows(district_all, period_id)
     unmapped = sorted(set(districts["district"]) - set(DISTRICT_TO_BOUNDARY))
 

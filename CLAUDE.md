@@ -70,14 +70,33 @@
   Analysis" section, never mixed into the executive cards). Right below it,
   a grid of one small choropleth map per antigen (plain inline SVG, no
   mapping library, no basemap tiles -- stays fully offline) using
-  `src/dashboard/kp_districts.geojson` (District/ADM2 boundaries, sourced
-  once from geoBoundaries, CC-BY 4.0, checked into the repo). Newer
-  sub-split districts (Chitral Upper/Lower, Kohistan's 3-way split,
-  Kurram's 2-way split, South Waziristan's 2-way split) share one older
-  boundary polygon each -- `coverage_summary.py`'s `DISTRICT_TO_BOUNDARY`
-  combines them by summing raw counts, same rule as every other aggregate
-  in this pipeline. All 36 real districts are mapped; verified exhaustive
-  in `tests/test_coverage_summary.py`.
+  `src/dashboard/kp_districts.geojson` (District/ADM2 boundaries). **Replaced
+  this session** with geometry traced from the user-provided reference map
+  (`KP_MAP_1.pptx`) -- earlier used geoBoundaries.org (CC-BY 4.0), which only
+  had 31 older, coarser boundary polygons, so every newer sub-split (Chitral
+  Upper/Lower, Kohistan's 3-way split, Kurram's 2-way split, South
+  Waziristan's 2-way split) had to share one polygon with its siblings,
+  combined by summing raw counts. The pptx turned out to contain a real,
+  separately labeled polygon for every one of KP's 36 current districts
+  (confirmed by rendering its own vector shapes directly -- see session
+  notes -- not by asking LibreOffice to export a preview, which fails in
+  this sandbox); extracted with `python-pptx` (bezier curves flattened,
+  Douglas-Peucker-simplified via `shapely` for embed size), 37 features
+  total (36 real districts + Tor Ghar, a real district with no coverage data
+  -- see below). `config.py`'s `DISTRICT_TO_BOUNDARY` is now a 1:1 identity
+  mapping (kept, not dropped, since the map-builders key off it generically
+  and it's still where a future shared-boundary case would go); the dict's
+  own comment flags the one unconfirmed assumption (SW Wazir Belt / SW
+  Mehsud Belt matched to the reference map's two South Waziristan shapes by
+  adjacency to North Waziristan, not by an explicit label in the source).
+  All 36 real districts are mapped with zero unmapped in Coverage, RCA, and
+  Supervisory maps alike; verified exhaustive in
+  `tests/test_coverage_summary.py`. One cosmetic-only artifact: a hairline
+  gap between Kohistan Lower and Kolai Palas Kohistan, where the source map
+  drew the Indus river as its own decorative shape between them (correctly
+  excluded from extraction, since it isn't a district) -- invisible at
+  normal dashboard scale, does not affect which data maps to which
+  district.
 - **Part 3 (bulletin)**: done for VPD surveillance (PDF + Excel annex + PPTX).
   `src/bulletin/{build.py,exports.py,template.html}` ->
   `output/Bulletin_Week_<N>_<year>.{pdf,xlsx,pptx}`. Rendered with Playwright
