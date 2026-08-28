@@ -13,8 +13,14 @@ the source files, so nothing here fabricates them.
 """
 import pandas as pd
 
-from .config import COVERAGE_GOOD, COVERAGE_WARNING, DISTRICT_TO_BOUNDARY, OUTLIER_PCT_THRESHOLD
+from .config import COVERAGE_GOOD, COVERAGE_WARNING, DISTRICT_TO_BOUNDARY, DROPOUT_GOOD, OUTLIER_PCT_THRESHOLD
 from .indicators import coverage_rag, dropout_rag
+
+
+def _plural(count: int, singular: str, plural_form: str | None = None) -> str:
+    """Grammatically correct 'N noun(s)', e.g. _plural(1, 'district') -> '1 district'."""
+    noun = singular if count == 1 else (plural_form or singular + "s")
+    return f"{count} {noun}"
 
 # District/Tehsil-level antigens that have both a raw count and a target in
 # the source file, i.e. everything indicators.coverage_pct can legitimately
@@ -140,11 +146,24 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
             f"({antigen_extremes['best']['pct']:.1f}%); {antigen_extremes['worst']['antigen']} the weakest "
             f"({antigen_extremes['worst']['pct']:.1f}%)."
         )
+    if district_extremes["best"] and district_extremes["worst"]:
+        insight_parts.append(
+            f"{district_extremes['best']['district']} is the top-performing district on FIC coverage "
+            f"({district_extremes['best']['pct']:.1f}%); {district_extremes['worst']['district']} is the lowest "
+            f"({district_extremes['worst']['pct']:.1f}%)."
+        )
     if district_compliance["total_with_data"]:
         insight_parts.append(
             f"{district_compliance['good']} of the {district_compliance['total_with_data']} districts "
             f"({district_compliance['compliant_pct']:.1f}%) have reached the {COVERAGE_GOOD}% FIC target; "
-            f"{district_compliance['warning'] + district_compliance['poor']} district(s) require intervention."
+            f"{_plural(district_compliance['warning'] + district_compliance['poor'], 'district requires', 'districts require')} intervention."
+        )
+    dropout_pct = prov["dropout_pct_reported"]
+    if pd.notna(dropout_pct):
+        dropout_note = "within" if dropout_pct <= DROPOUT_GOOD else "above"
+        insight_parts.append(
+            f"Province-wide Penta1-to-Penta3 dropout rate is {dropout_pct:.1f}%, {dropout_note} the "
+            f"{DROPOUT_GOOD}% acceptable-loss benchmark."
         )
 
     return {
@@ -187,7 +206,8 @@ def build_uc_compliance(uc_all: pd.DataFrame, period_id: str) -> dict:
         insight_parts.append(
             f"{fic['good']} of {fic['total_with_data']} Union Councils ({fic['compliant_pct']:.1f}%) have "
             f"reached the {COVERAGE_GOOD}% FIC (Fully Immunized Child) target; "
-            f"{fic['poor']} UC(s) are in the critical band and need priority intervention."
+            f"{_plural(fic['poor'], 'UC is', 'UCs are')} in the critical band and "
+            f"{'needs' if fic['poor'] == 1 else 'need'} priority intervention."
         )
     if not top.empty and not bottom.empty:
         best_row, worst_row = top.iloc[0], bottom.iloc[0]
@@ -319,7 +339,7 @@ def build_dropout_analysis(district_all: pd.DataFrame, uc_all: pd.DataFrame, per
     neg_u = int(uc_period["is_negative_dropout"].fillna(False).sum())
     if neg_d or neg_u:
         insight_parts.append(
-            f"{neg_d} district(s) and {neg_u} UC(s) show a negative dropout rate, a data-entry error "
+            f"{_plural(neg_d, 'district')} and {_plural(neg_u, 'UC')} show a negative dropout rate, a data-entry error "
             f"(more children recorded for Penta3 than Penta1), kept and flagged rather than removed."
         )
 

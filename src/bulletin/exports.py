@@ -219,13 +219,15 @@ def build_pptx(bulletin: dict, output_dir: Path) -> Path:
     s = add_slide()
     diph = bulletin["diphtheria"]
     add_title(s, "Diphtheria Situation", bulletin["cumulative_label"])
+    this_week_n = diph["this_week"]["case_count"]
+    deaths_n = diph["cumulative"]["deaths"]
     add_bullets(s, [
-        f"{diph['this_week']['case_count']} case(s) reported this week.",
+        f"{this_week_n} {'case' if this_week_n == 1 else 'cases'} reported this week.",
         f"{diph['cumulative']['case_count']} cases reported from {diph['cumulative']['districts_affected']} districts, cumulative.",
         f"{diph['cumulative']['lab_confirmed_count']} lab confirmed.",
         f"{diph['cumulative']['pct_no_dpt_history']:.0f}% of cases have no recorded DPT history.",
         f"{diph['cumulative']['pct_aged_5_plus']:.0f}% of cases are aged 5 years and above.",
-        f"{diph['cumulative']['deaths']} diphtheria-related death(s) reported to date.",
+        f"{deaths_n} diphtheria-related {'death' if deaths_n == 1 else 'deaths'} reported to date.",
     ])
 
     # Slide 4: Pertussis & NNT

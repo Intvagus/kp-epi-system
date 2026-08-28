@@ -40,6 +40,11 @@ UC_FIELDS = [
     "district", "tehsil", "uc_code", "uc_name", "period_id",
     "bcg_pct", "penta1_pct", "penta2_pct", "penta3_pct", "ipv1_pct", "ipv2_pct",
     "mr1_pct", "fic_pct", "tcv_pct", "dropout_pct",
+    # UC-level-only antigens (no raw count/target at District/Tehsil level in
+    # the source file -- see CLAUDE.md and the Service Delivery tab's
+    # "Additional Antigens (Union Council Level Only)" section).
+    "opv0_pct", "opv1_pct", "opv2_pct", "opv3_pct", "pcv1_pct", "pcv2_pct", "pcv3_pct",
+    "rota1_pct", "rota2_pct",
     "access_rating", "utilisation_rating", "category",
     "is_zero_target", "is_outlier", "is_negative_dropout", "is_consistency_fail",
     "consistency_fail_count",

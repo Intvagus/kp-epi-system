@@ -180,6 +180,18 @@ def test_uc_compliance_covers_wider_antigen_set_than_district(district_and_uc):
     assert len(compliance["bottom_ucs"]) == 5
 
 
+def test_uc_compliance_includes_opv3_and_pcv3(district_and_uc):
+    # OPV3/PCV3 are real columns in the UC Wise Analysis - Coverages sheet
+    # (percentage-only, no District-level equivalent) -- confirmed present
+    # by direct inspection, must not be silently dropped.
+    _, uc_all = district_and_uc
+    compliance = build_uc_compliance(uc_all, "2025-12")
+    assert "OPV3" in compliance["by_antigen"]
+    assert "PCV3" in compliance["by_antigen"]
+    assert compliance["by_antigen"]["OPV3"]["total_with_data"] == 1376
+    assert compliance["by_antigen"]["PCV3"]["total_with_data"] == 1376
+
+
 def test_uc_compliance_top_ucs_excludes_outlier_artifacts(district_and_uc):
     _, uc_all = district_and_uc
     compliance = build_uc_compliance(uc_all, "2025-12")

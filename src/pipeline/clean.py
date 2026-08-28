@@ -245,8 +245,9 @@ def clean_uc(coverages_raw: pd.DataFrame, difference_raw: pd.DataFrame, period_i
     df["is_consistency_fail"] = df["is_consistency_fail"].fillna(False)
 
     for _, row in df[df["is_consistency_fail"]].iterrows():
+        _count = int(row["consistency_fail_count"])
         log.flag(period_id, "uc", row["uc_name"], "same_visit_consistency_fail",
-                  detail=f"{int(row['consistency_fail_count'])} antigen pair(s) disagree")
+                  detail=f"{_count} antigen {'pair disagrees' if _count == 1 else 'pairs disagree'}")
 
     df["period_id"] = period_id
     return df

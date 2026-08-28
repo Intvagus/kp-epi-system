@@ -33,6 +33,23 @@ def nnt():
     return pd.read_parquet(PROCESSED_DIR / "vpd_nnt_cases.parquet")
 
 
+@pytest.fixture(scope="module")
+def pertussis():
+    return pd.read_parquet(PROCESSED_DIR / "vpd_pertussis_cases.parquet")
+
+
+def test_pertussis_sheet_subheader_artifact_row_is_dropped(pertussis):
+    """The Pertussis sheet has a 2-row merged sub-header ('Condition of
+    Specimen' -> 'Quantity Adequate'/'Cold Chain OK'); the loader only skips
+    1 header row, so without this fix the sub-header text itself would be
+    read in as a 45th, entirely-blank 'case' row. Confirmed by direct
+    inspection of the source workbook: exactly 44 real cases, serially
+    numbered 1-44, plus that 1 artifact row."""
+    assert len(pertussis) == 44
+    assert pertussis["sr_no"].isna().sum() == 0
+    assert pertussis["district"].isna().sum() == 0
+
+
 def test_msl_suspected_ytd_matches_full_line_list_row_count(msl):
     assert ind.suspected_case_count(msl) == 10336
 

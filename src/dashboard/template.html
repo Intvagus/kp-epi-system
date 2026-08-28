@@ -293,6 +293,14 @@
   }
   function fmtPct(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : v.toFixed(1) + "%"; }
   function fmtNum(v) { return (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toLocaleString(); }
+  // Grammatically correct count + noun, e.g. plural(1, "case") -> "case", plural(2, "case") -> "cases",
+  // plural(2, "child", "children") -> "children". Used instead of "case(s)"/"child(ren)" placeholders.
+  function plural(count, singular, pluralForm) {
+    return (count === 1) ? singular : (pluralForm || singular + "s");
+  }
+  function nounFor(count, singular, pluralForm) {
+    return fmtNum(count) + " " + plural(count, singular, pluralForm);
+  }
   function ragClass(rag) { return rag ? "rag-" + rag : ""; }
   function ragTextClass(rag) { return rag ? "rag-" + rag + "-text" : ""; }
   function destroyChart(name) { if (charts[name]) { charts[name].destroy(); delete charts[name]; } }
@@ -383,10 +391,10 @@
     el.innerHTML =
       '<div class="grid kpi-row">' + kpiHtml + '</div>' +
       '<div class="grid two-col" style="margin-top:14px;">' +
-        '<div class="card"><h2>Antigen cascade (province-wide)</h2><div class="chart-wrap"><canvas id="chart-cascade"></canvas></div></div>' +
-        '<div class="card"><h2>UC category breakdown</h2><div class="chart-wrap"><canvas id="chart-category"></canvas></div></div>' +
+        '<div class="card"><h2>Antigen Cascade (Province-wide)</h2><div class="chart-wrap"><canvas id="chart-cascade"></canvas></div></div>' +
+        '<div class="card"><h2>UC Category Breakdown</h2><div class="chart-wrap"><canvas id="chart-category"></canvas></div></div>' +
       '</div>' +
-      '<div class="card"><h2>Districts ranked by FIC coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>';
+      '<div class="card"><h2>Districts Ranked by FIC Coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>';
 
     destroyChart("cascade"); destroyChart("category"); destroyChart("ficRank");
 
@@ -443,10 +451,12 @@
       ["penta3_pct_reported", "Penta3%"], ["mr1_pct_reported", "MR1%"], ["fic_pct_reported", "FIC%"],
       ["dropout_pct_reported", "Dropout%"], ["category", "Category"], ["total_ucs", "UCs"]],
     uc: [["uc_name", "Union Council"], ["bcg_pct", "BCG%"], ["penta1_pct", "Penta1%"],
-      ["penta3_pct", "Penta3%"], ["mr1_pct", "MR1%"], ["fic_pct", "FIC%"], ["dropout_pct", "Dropout%"],
+      ["penta3_pct", "Penta3%"], ["opv3_pct", "OPV3%"], ["pcv3_pct", "PCV3%"],
+      ["mr1_pct", "MR1%"], ["fic_pct", "FIC%"], ["dropout_pct", "Dropout%"],
       ["category", "Category"], ["flags", "Flags"]],
   };
   var RAG_COLS = { bcg_pct: 1, bcg_pct_reported: 1, penta1_pct: 1, penta1_pct_reported: 1, penta2_pct_reported: 1,
+    opv3_pct: 1, pcv3_pct: 1,
     penta3_pct: 1, penta3_pct_reported: 1, mr1_pct: 1, mr1_pct_reported: 1, fic_pct: 1, fic_pct_reported: 1,
     dropout_pct: "dropout", dropout_pct_reported: "dropout" };
 
@@ -732,7 +742,9 @@
     if (cs.status !== "ok" || !cs.district_map || cs.district_map.unmapped_districts.length) return "";
     return '<div class="card"><h2>🗺️ Antigen-wise District Coverage Maps</h2>' +
       '<p class="section-note">Each district shaded by coverage for ' + cs.executive.current_period_label +
-        '. A few districts share one boundary with recently-created sister districts (see hover text) -- the shaded figure is their combined coverage.</p>' +
+        '. A few districts share one boundary with recently-created sister districts (see hover text) -- the shaded figure is their combined coverage. ' +
+        'OPV, PCV, and Rota (including OPV3 and PCV3) have no District-level target in the source file, so they cannot be mapped here -- see ' +
+        '"Additional Antigens (Union Council Level Only)" below for those, at UC level.</p>' +
       '<div class="mini-map-grid" id="map-grid-' + kind + '"></div>' +
       '<div class="map-legend">' +
         '<span><span class="swatch" style="background:#1e8e3e;"></span>Good (&ge;' + CFG.coverage_good + '%)</span>' +
@@ -934,6 +946,72 @@
     });
   }
 
+  // ---- Section 2b: Additional Antigens (Union Council level only) ----
+  // OPV0-3, PCV1-3, and Rota1-2 exist in the source file only as a
+  // per-UC percentage (UC Wise Analysis - Coverages sheet) -- no raw
+  // vaccinated count or target exists for them at District/Tehsil level, so
+  // they can never appear in Section 2's district-level chart or the
+  // district coverage maps above (both require a real target to compute
+  // against). Shown here instead, from the exact same uc_compliance.by_antigen
+  // data Section 2 would use if these antigens had district-level targets:
+  // the % of Union Councils that reached the coverage-good threshold.
+  var UC_ONLY_ANTIGENS = ["OPV0", "OPV1", "OPV2", "OPV3", "PCV1", "PCV2", "PCV3", "Rota1", "Rota2"];
+
+  function ucOnlyAntigenHtml(cs, kind) {
+    if (cs.status !== "ok" || !cs.uc_compliance || !cs.uc_compliance.by_antigen) return "";
+    var available = UC_ONLY_ANTIGENS.filter(function (a) { return cs.uc_compliance.by_antigen[a] && cs.uc_compliance.by_antigen[a].total_with_data; });
+    if (!available.length) {
+      return '<div class="card"><h2>💉 2b. Additional Antigens (Union Council Level Only)</h2>' +
+        '<p class="section-note">OPV3 and PCV3 data is not available in the provided source file.</p></div>';
+    }
+    return '<div class="card"><h2>💉 2b. Additional Antigens (Union Council Level Only)</h2>' +
+      '<p class="section-note">OPV, PCV, and Rota doses are reported in the source file only as a per-Union-Council percentage -- ' +
+        'no raw vaccinated count or target exists for these at District/Tehsil level, so they cannot appear in the district-level ' +
+        'chart above or the district coverage maps below. Shown here instead: the % of Union Councils that reached the ' +
+        CFG.coverage_good + '% target coverage for each, from the UC Wise Analysis - Coverages sheet.</p>' +
+      '<div class="chart-wrap tall"><canvas id="chart-uc-only-antigens-' + kind + '"></canvas></div>' +
+      editableInsight("uc-only-antigens-" + kind, ucOnlyAntigenInsight(cs, available)) +
+    '</div>';
+  }
+
+  function ucOnlyAntigenInsight(cs, available) {
+    var rows = available.map(function (a) { return { antigen: a, data: cs.uc_compliance.by_antigen[a] }; });
+    var best = rows.reduce(function (b, r) { return (!b || r.data.compliant_pct > b.data.compliant_pct) ? r : b; }, null);
+    var worst = rows.reduce(function (w, r) { return (!w || r.data.compliant_pct < w.data.compliant_pct) ? r : w; }, null);
+    if (!best || !worst) return "";
+    return best.antigen + " has the highest Union Council compliance among these (" + fmtPct(best.data.compliant_pct) + " of UCs at target), while " +
+      worst.antigen + " has the lowest (" + fmtPct(worst.data.compliant_pct) + ").";
+  }
+
+  function renderUcOnlyAntigenChart(cs, kind) {
+    destroyChart("ucOnlyAntigens");
+    if (cs.status !== "ok" || !cs.uc_compliance || !cs.uc_compliance.by_antigen) return;
+    var canvas = document.getElementById("chart-uc-only-antigens-" + kind);
+    if (!canvas) return;
+    var rows = UC_ONLY_ANTIGENS.filter(function (a) { return cs.uc_compliance.by_antigen[a] && cs.uc_compliance.by_antigen[a].total_with_data; })
+      .map(function (a) { return { antigen: a, data: cs.uc_compliance.by_antigen[a] }; });
+    canvas.parentElement.style.height = Math.max(200, rows.length * 38) + "px";
+    charts.ucOnlyAntigens = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: rows.map(function (r) { return r.antigen; }),
+        datasets: [{
+          label: "% of UCs at target", data: rows.map(function (r) { return r.data.compliant_pct; }),
+          backgroundColor: rows.map(function (r) { return targetMetColor(r.data.compliant_pct); }),
+          labelText: rows.map(function (r) {
+            return fmtPct(r.data.compliant_pct) + " (" + fmtNum(r.data.good) + " of " + fmtNum(r.data.total_with_data) + " UCs)";
+          }),
+        }],
+      },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        layout: { padding: { right: 90 } },
+        plugins: { legend: { display: false } },
+        scales: { x: { max: 110 } },
+      },
+    });
+  }
+
   // ---- Section 3: Target vs Coverage Analysis ----
   function targetGapHtml(cs, kind) {
     if (cs.status !== "ok") return "";
@@ -1118,6 +1196,7 @@
       executiveOverviewHtml(cs, kind) +
       antigenMapsGridHtml(cs, kind) +
       antigenAnalysisHtml(cs, kind) +
+      ucOnlyAntigenHtml(cs, kind) +
       '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
       dropoutAnalysisHtml(cs, kind) +
       trendsHtml(cs, kind) +
@@ -1134,6 +1213,7 @@
 
     renderAntigenMapsGrid(cs, kind);
     renderAntigenAnalysisChart(cs);
+    renderUcOnlyAntigenChart(cs, kind);
     renderTargetGapChart(cs, kind);
     renderDropoutChart(cs);
     renderTrendsChart(cs);
@@ -1281,8 +1361,8 @@
       "measles incidence " + Number(byKey.measles_incidence_per_million.provincial_value).toFixed(1) + " per million, " +
       "non-measles/non-rubella discard rate " + Number(byKey.non_measles_non_rubella_rate.provincial_value).toFixed(1) + " per 100,000, " +
       "sample collection " + Number(byKey.pct_sample_collected.provincial_value).toFixed(1) + "%, adequate investigation " +
-      Number(byKey.pct_adequate_investigation.provincial_value).toFixed(1) + "%, and " + fmtNum(byKey.measles_related_deaths.provincial_value) +
-      " measles-related death(s) reported. No numeric targets are defined for these indicators in the source workbook.";
+      Number(byKey.pct_adequate_investigation.provincial_value).toFixed(1) + "%, and " + nounFor(byKey.measles_related_deaths.provincial_value, "measles-related death", "measles-related deaths") +
+      " reported. No numeric targets are defined for these indicators in the source workbook.";
 
     return '<div class="card"><h2>Key Surveillance Indicators</h2>' +
       '<p class="sub">From the Measles Indicator Sheet (' + escHtml(ki.year) + '), ' + fmtNum(ki.districts_covered) + ' districts. ' +
@@ -1384,11 +1464,11 @@
 
     // ---- Errors & inconsistencies narrative ----
     var errorList = [
-      dq.duplicate_epid.duplicate_epid_count + " Epid number(s) appear on more than one row (" + dq.duplicate_epid.duplicate_row_count + " rows total) -- likely duplicate reporting.",
-      anomaly.anomaly_count + " case(s) under 9 months old (not yet MCV1-eligible) have a vaccine dose recorded -- worth field verification.",
-      dq.classification_discordance.flagged_count + " case(s) have a lab result that doesn't match their final classification (positive result marked Discarded, or negative result marked Confirmed).",
-      dq.timeliness.negative_delay_count + " case(s) show a notification date before the recorded rash-onset date -- a date-entry error.",
-      dq.lab_confirmed_dose_validation.two_dose_count + " lab-confirmed case(s) had 2 prior vaccine doses recorded, and " + dq.lab_confirmed_dose_validation.one_dose_count + " had 1 -- MCV is highly effective, so these merit field validation rather than being taken at face value.",
+      nounFor(dq.duplicate_epid.duplicate_epid_count, "Epid number") + " " + plural(dq.duplicate_epid.duplicate_epid_count, "appears", "appear") + " on more than one row (" + dq.duplicate_epid.duplicate_row_count + " rows total) -- likely duplicate reporting.",
+      nounFor(anomaly.anomaly_count, "case") + " under 9 months old (not yet MCV1-eligible) " + plural(anomaly.anomaly_count, "has", "have") + " a vaccine dose recorded -- worth field verification.",
+      nounFor(dq.classification_discordance.flagged_count, "case") + " " + plural(dq.classification_discordance.flagged_count, "has", "have") + " a lab result that doesn't match the final classification recorded (positive result marked Discarded, or negative result marked Confirmed).",
+      nounFor(dq.timeliness.negative_delay_count, "case") + " " + plural(dq.timeliness.negative_delay_count, "shows", "show") + " a notification date before the recorded rash-onset date -- a date-entry error.",
+      nounFor(dq.lab_confirmed_dose_validation.two_dose_count, "lab-confirmed case") + " " + plural(dq.lab_confirmed_dose_validation.two_dose_count, "had", "had") + " 2 prior vaccine doses recorded, and " + nounFor(dq.lab_confirmed_dose_validation.one_dose_count, "case") + " had 1 -- MCV is highly effective, so these merit field validation rather than being taken at face value.",
     ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
 
     var districtRowsHtml = msl.district_breakdown.slice().sort(function (a, b) { return b.suspected - a.suspected; })
@@ -1413,6 +1493,8 @@
 
     var pertRowsHtml = pert.district_breakdown.slice().sort(function (a, b) { return b.case_count - a.case_count; })
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+    var pertTotalFromDistricts = pert.district_breakdown.reduce(function (s, r) { return s + r.case_count; }, 0);
+    var pertMissingDistrict = pert.total_cases - pertTotalFromDistricts;
 
     var nntKpis = [
       diseaseKpiCard("Cases (YTD)", fmtNum(nnt.ytd.case_count), ""),
@@ -1422,18 +1504,18 @@
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
 
     var mslInsightId = "vpd-msl-summary-" + v.latest_epi_week;
-    var mslAutoInsight = "Week " + v.latest_epi_week + ": " + fmtNum(msl.suspected_latest_week) + " suspected case(s) reported this week, " +
-      fmtNum(msl.suspected_ytd) + " cumulative since week 1. " + fmtNum(dq.duplicate_epid.duplicate_epid_count) + " duplicate Epid number(s) and " +
-      fmtNum(anomaly.anomaly_count) + " under-9m vaccinated-anomaly case(s) need follow-up.";
+    var mslAutoInsight = "Week " + v.latest_epi_week + ": " + nounFor(msl.suspected_latest_week, "suspected case") + " reported this week, " +
+      fmtNum(msl.suspected_ytd) + " cumulative since week 1. " + nounFor(dq.duplicate_epid.duplicate_epid_count, "duplicate Epid number") + " and " +
+      nounFor(anomaly.anomaly_count, "under-9m vaccinated-anomaly case") + " " + plural(anomaly.anomaly_count, "needs", "need") + " follow-up.";
 
     // ---- Auto-generated insights for Daily EPI Curve / Weekly Trend / Final Classification & Outcome ----
     var dailyCurve = msl.daily_epi_curve;
     var dailyPeak = dailyCurve.reduce(function (best, r) { return r.case_count > best.case_count ? r : best; }, dailyCurve[0] || { case_count: 0 });
     var dailyLatest = dailyCurve.length ? dailyCurve[dailyCurve.length - 1] : null;
     var dailyCurveAutoInsight = dailyCurve.length
-      ? "Peak daily onset: " + fmtNum(dailyPeak.case_count) + " suspected case(s) on " + dailyPeak.onset_day + ". " +
-        "Most recent day (" + (dailyLatest ? dailyLatest.onset_day : "—") + "): " + fmtNum(dailyLatest ? dailyLatest.case_count : 0) +
-        " case(s), 7-day average " + (dailyLatest ? dailyLatest.rolling_7d_avg.toFixed(1) : "—") + "."
+      ? "Peak daily onset: " + nounFor(dailyPeak.case_count, "suspected case") + " on " + dailyPeak.onset_day + ". " +
+        "Most recent day (" + (dailyLatest ? dailyLatest.onset_day : "—") + "): " + nounFor(dailyLatest ? dailyLatest.case_count : 0, "case") +
+        ", 7-day average " + (dailyLatest ? dailyLatest.rolling_7d_avg.toFixed(1) : "—") + "."
       : "No rash-onset dates recorded yet.";
 
     var wt = msl.weekly_trend;
@@ -1457,7 +1539,37 @@
         ", " + (outcomeTotal ? (msl.outcome_breakdown[topOutcome] / outcomeTotal * 100).toFixed(1) : "0.0") + "%)."
       : "No classification data available yet.";
 
+    // ---- Tab-level Overview / Summary (Section 5's spec: overall suspected
+    // cases, classification mix, trend, key indicators, attention areas) ----
+    var pertTotalCases = pert.total_cases;
+    var criticalDistricts = msl.district_action_priority.filter(function (r) { return r.priority === "Critical"; }).length;
+    var actionDistricts = msl.district_action_priority.filter(function (r) { return r.priority === "Action"; }).length;
+    var kiHeadline = "";
+    if (ki && ki.status === "ok") {
+      var kiIncidence = ki.indicators.filter(function (r) { return r.key === "measles_incidence_per_million"; })[0];
+      var kiDiscard = ki.indicators.filter(function (r) { return r.key === "non_measles_non_rubella_rate"; })[0];
+      if (kiIncidence && kiDiscard) {
+        kiHeadline = " Per the " + ki.year + " Measles Indicator Sheet, province-wide measles incidence is " +
+          Number(kiIncidence.provincial_value).toFixed(1) + " per million and the non-measles/non-rubella discard rate is " +
+          Number(kiDiscard.provincial_value).toFixed(1) + " per 100,000.";
+      }
+    }
+    var deathNote = (diph.ytd.deaths > 0 || nnt.ytd.deaths > 0)
+      ? " " + nounFor(diph.ytd.deaths + nnt.ytd.deaths, "death") + " recorded across these diseases YTD (diphtheria: " + fmtNum(diph.ytd.deaths) + ", neonatal tetanus: " + fmtNum(nnt.ytd.deaths) + ")."
+      : "";
+    var vpdOverviewInsightId = "vpd-tab-overview-" + v.latest_epi_week;
+    var vpdOverviewAutoInsight =
+      "Weeks 1-" + v.latest_epi_week + ", 2026: " + nounFor(msl.suspected_ytd, "suspected measles/rubella case") + " reported cumulatively, including " +
+      nounFor(msl.suspected_latest_week, "case") + " in the latest week. " +
+      (topClass ? "Most common final classification: " + topClass + " (" + (classTotal ? (msl.classification_breakdown[topClass] / classTotal * 100).toFixed(1) : "0.0") + "%); most common outcome: " + topOutcome + " (" + (outcomeTotal ? (msl.outcome_breakdown[topOutcome] / outcomeTotal * 100).toFixed(1) : "0.0") + "%). " : "") +
+      (wt.length ? "Weekly confirmed measles cases peaked in week " + wtPeakMeasles.epi_week + " at " + fmtNum(wtPeakMeasles.measles_confirmed) + "; the latest week logged " + fmtNum(wtLatest.measles_confirmed) + " measles-confirmed, " + fmtNum(wtLatest.rubella_confirmed) + " rubella-confirmed and " + fmtNum(wtLatest.discarded) + " discarded. " : "") +
+      "Also reported YTD: " + nounFor(diph.ytd.case_count, "diphtheria case") + ", " + nounFor(pertTotalCases, "pertussis case") + " and " + nounFor(nnt.ytd.case_count, "neonatal tetanus case") + "." + deathNote + kiHeadline + " " +
+      ((criticalDistricts + actionDistricts) ? nounFor(criticalDistricts + actionDistricts, "district requires", "districts require") + " priority follow-up based on case load and data-quality flags." : "No districts currently flagged for priority follow-up.");
+
     el.innerHTML =
+      '<div class="card"><h2>📊 VPD Surveillance Overview</h2>' +
+        editableInsight(vpdOverviewInsightId, vpdOverviewAutoInsight) +
+      '</div>' +
       '<div class="card"><h2><span class="disease-tag" style="background:var(--measles);"></span>Measles &amp; Rubella (weeks 1-' + v.latest_epi_week + ', 2026)</h2>' +
         '<div class="grid kpi-row">' + mslKpis + '</div>' +
         editableInsight(mslInsightId, mslAutoInsight) +
@@ -1521,7 +1633,7 @@
 
       '<div class="card"><h2>Timeliness (rash onset &rarr; notification)</h2>' +
         '<div class="chart-wrap"><canvas id="chart-msl-timeliness"></canvas></div>' +
-        (dq.timeliness.negative_delay_count > 0 ? '<p class="sub">' + dq.timeliness.negative_delay_count + ' case(s) excluded: notification date recorded before rash onset date.</p>' : '') +
+        (dq.timeliness.negative_delay_count > 0 ? '<p class="sub">' + nounFor(dq.timeliness.negative_delay_count, "case") + ' excluded: notification date recorded before rash onset date.</p>' : '') +
       '</div>' +
 
       '<h3>District-wise (suspected / measles-confirmed / rubella-confirmed)</h3>' +
@@ -1538,7 +1650,8 @@
         '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-diph-trend"></canvas></div>' +
       '</div>' +
       '<div class="grid two-col">' +
-        '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (by district, YTD)</h2>' +
+        '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (YTD)</h2>' +
+          '<div class="grid kpi-row">' + [diseaseKpiCard("Cases (YTD)", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
           '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div></div>' +
         '<div class="card"><h2><span class="disease-tag" style="background:var(--nnt);"></span>Neonatal Tetanus</h2>' +
           '<div class="grid kpi-row">' + nntKpis + '</div>' +
@@ -1745,7 +1858,7 @@
     var ov = rca.overview, zd = rca.zero_dose;
     var kpis = [
       monitoringKpiCard("Children assessed", fmtNum(ov.total_children_assessed), rca.reporting_window || ""),
-      monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), ov.districts_covered + " district(s)"),
+      monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), nounFor(ov.districts_covered, "district")),
       monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed"),
       monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
     ].join("");
@@ -1761,9 +1874,9 @@
 
     var overviewInsightId = "monitoring-rca-summary-" + (rca.reporting_window || "");
     var overviewAutoInsight = fmtNum(ov.total_children_assessed) + " children assessed across " + fmtNum(ov.total_rca_visits) +
-      " RCA visits (" + (rca.reporting_window || "period not recorded") + ") in " + fmtNum(ov.districts_covered) + " district(s), by " +
-      fmtNum(ov.monitors_involved) + " monitor(s). " + fmtNum(zd.zero_dose_count) +
-      " zero-dose child(ren) identified (" + fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1).";
+      " RCA visits (" + (rca.reporting_window || "period not recorded") + ") in " + nounFor(ov.districts_covered, "district") + ", by " +
+      nounFor(ov.monitors_involved, "monitor") + ". " + nounFor(zd.zero_dose_count, "zero-dose child", "zero-dose children") +
+      " identified (" + fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1).";
 
     var antigenInsightId = "monitoring-rca-antigen-" + (rca.reporting_window || "");
     var lowestAntigen = rca.antigen_coverage.filter(function (r) { return r.pct !== null; })
@@ -1804,7 +1917,7 @@
     var infoSourceKeys = Object.keys(rca.info_source_breakdown);
     var topInfoSource = infoSourceKeys.reduce(function (best, k) { return (!best || rca.info_source_breakdown[k] > rca.info_source_breakdown[best]) ? k : best; }, null);
     var sourceAutoInsight = "Vaccination status was confirmed by card for " + countPct(rca.vaccine_source_breakdown["card"] || 0, sourceTotal) + " of children" +
-      (topInfoSource ? "; the most-cited social mobilization channel was " + topInfoSource + " (" + fmtNum(rca.info_source_breakdown[topInfoSource]) + " mention(s))." : ".");
+      (topInfoSource ? "; the most-cited social mobilization channel was " + topInfoSource + " (" + nounFor(rca.info_source_breakdown[topInfoSource], "mention") + ")." : ".");
 
     var reasonsKeys = Object.keys(rca.non_vaccination_reasons);
     var reasonsTotal = reasonsKeys.reduce(function (s, k) { return s + rca.non_vaccination_reasons[k]; }, 0);
@@ -1829,7 +1942,7 @@
     }, null);
     var mapAutoInsight = mapTopDistrict
       ? mapTopDistrict + " had the most RCA activity (" + fmtNum(rca.district_map.features[mapTopDistrict].children_assessed) + " children assessed across " +
-        fmtNum(rca.district_map.features[mapTopDistrict].rca_visits) + " visit(s))." +
+        nounFor(rca.district_map.features[mapTopDistrict].rca_visits, "visit") + ")." +
         (rca.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + rca.district_map.unmapped_districts.join(", ") + "." : "")
       : "No district data available to map.";
 
@@ -2010,7 +2123,7 @@
     var ov = sup.overview;
     var kpis = [
       monitoringKpiCard("Supervisory visits", fmtNum(ov.total_visits), sup.reporting_window || ""),
-      monitoringKpiCard("Facilities covered", fmtNum(ov.facilities_covered), ov.districts_covered + " district(s)"),
+      monitoringKpiCard("Facilities covered", fmtNum(ov.facilities_covered), nounFor(ov.districts_covered, "district")),
       monitoringKpiCard("Fixed-site-open rate", ratePct(sup.fixed_site_open_rate.pct), sup.fixed_site_open_rate.answered + " fixed-site visits checked"),
       monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
     ].join("");
@@ -2055,7 +2168,7 @@
 
     var overviewInsightId = "monitoring-supervisory-summary-" + (sup.reporting_window || "");
     var overviewAutoInsight = fmtNum(ov.total_visits) + " supervisory visits to " + fmtNum(ov.facilities_covered) + " facilities (" +
-      (sup.reporting_window || "period not recorded") + "), " + fmtNum(ov.districts_covered) + " district(s), by " + fmtNum(ov.monitors_involved) + " monitor(s)." +
+      (sup.reporting_window || "period not recorded") + "), " + nounFor(ov.districts_covered, "district") + ", by " + nounFor(ov.monitors_involved, "monitor") + "." +
       (sup.practice_risk_flags.length ? " " + sup.practice_risk_flags[0].item + " observed in " + ratePct(sup.practice_risk_flags[0].pct) + " of visits." : "");
 
     var scoresInsightId = "monitoring-supervisory-scores-" + (sup.reporting_window || "");
@@ -2085,12 +2198,12 @@
     var trendAutoInsight = "";
     if (sup.daily_visit_trend.length > 1) {
       var supTrendPeak = sup.daily_visit_trend.reduce(function (b, r) { return r.visits > b.visits ? r : b; });
-      trendAutoInsight = "Busiest day: " + supTrendPeak.visit_date + " with " + fmtNum(supTrendPeak.visits) + " visit(s).";
+      trendAutoInsight = "Busiest day: " + supTrendPeak.visit_date + " with " + nounFor(supTrendPeak.visits, "visit") + ".";
     }
 
     var districtInsightId = "monitoring-supervisory-district-" + (sup.reporting_window || "");
     var districtAutoInsight = sup.district_breakdown.length
-      ? sup.district_breakdown.length + " district(s) covered; " + sup.district_breakdown[0].district + " received the most visits (" + fmtNum(sup.district_breakdown[0].visits) + ")."
+      ? nounFor(sup.district_breakdown.length, "district") + " covered; " + sup.district_breakdown[0].district + " received the most visits (" + fmtNum(sup.district_breakdown[0].visits) + ")."
       : "";
 
     var facilityInsightId = "monitoring-supervisory-facility-" + (sup.reporting_window || "");
@@ -2106,7 +2219,7 @@
       return (!best || v > sup.district_map.features[best].visits) ? name : best;
     }, null);
     var mapAutoInsight = mapTopDistrict
-      ? mapTopDistrict + " had the most supervisory activity (" + fmtNum(sup.district_map.features[mapTopDistrict].visits) + " visit(s) to " +
+      ? mapTopDistrict + " had the most supervisory activity (" + nounFor(sup.district_map.features[mapTopDistrict].visits, "visit") + " to " +
         fmtNum(sup.district_map.features[mapTopDistrict].facilities) + " facilities)." +
         (sup.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + sup.district_map.unmapped_districts.join(", ") + "." : "")
       : "No district data available to map.";

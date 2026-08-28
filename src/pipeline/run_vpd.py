@@ -211,6 +211,12 @@ def run_vpd(raw_dir: Path | None = None, processed_dir: Path | None = None,
             "weekly_trend": ind.weekly_case_counts(diphtheria).to_dict(orient="records"),
         },
         "pertussis": {
+            # total_cases is len(pertussis) directly, not a sum of
+            # district_breakdown -- district_breakdown groups by district,
+            # which silently drops the 1 row with a missing/null district
+            # (pandas groupby excludes NaN keys), so summing it would
+            # undercount the true case total by that row.
+            "total_cases": len(pertussis),
             "district_breakdown": ind.pertussis_district_counts(pertussis).to_dict(orient="records"),
             "weekly_trend": ind.weekly_case_counts(pertussis).to_dict(orient="records"),
         },
@@ -238,7 +244,8 @@ def run_vpd(raw_dir: Path | None = None, processed_dir: Path | None = None,
         flags_df.to_csv(processed_dir / "vpd_quality_flags.csv", index=False)
 
     print("\nVPD data quality summary:")
-    print(f"  {len(log.flags)} rows flagged, kept in data (see vpd_quality_flags.csv)")
+    print(f"  {len(log.flags)} rows flagged -- see vpd_quality_flags.csv (all kept in data except "
+          f"sheet_subheader_row_dropped, a non-case artifact row removed at cleaning)")
     if not flags_df.empty:
         for flag_type, count in flags_df["flag_type"].value_counts().to_dict().items():
             print(f"    - {flag_type}: {count}")

@@ -20,7 +20,7 @@ def find_raw_files(raw_dir: Path | None = None) -> list[Path]:
     files = sorted(p for p in raw_dir.glob("*.xlsx") if detect_workbook_type(p).workbook_type == "coverage")
     if not files:
         raise FileNotFoundError(
-            f"No coverage .xlsx files found in {raw_dir}. Drop the EPI coverage workbook(s) there and re-run."
+            f"No coverage .xlsx files found in {raw_dir}. Drop the EPI coverage workbook there and re-run."
         )
     return files
 
