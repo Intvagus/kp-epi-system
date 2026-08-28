@@ -181,6 +181,7 @@
   .discordance-table th:first-child, .discordance-table td:first-child { text-align: left; }
   .discordant-cell { background: var(--poor-bg); color: var(--poor); font-weight: 700; }
   .error-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
+  .ki-value { font-size: 16px; font-weight: 700; color: var(--navy); white-space: nowrap; }
   footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
   button.export-btn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35);
@@ -1125,10 +1126,57 @@
   }
   function priorityBadgeClass(p) { return p === "Critical" ? "poor" : p === "Action" ? "warning" : "neutral"; }
 
+  // ---- Key Surveillance Indicators (from the separate Measles Indicator
+  // Sheet workbook, independent of the MSL line list) ----
+  function keyIndicatorsSectionHtml(ki) {
+    if (!ki || ki.status !== "ok") {
+      return '<div class="card"><h2>Key Surveillance Indicators</h2><div class="placeholder-card">' +
+        '<div class="icon">⏳</div>' + escHtml(ki && ki.message ? ki.message : "No Measles Indicator Sheet has been uploaded yet.") + '</div></div>';
+    }
+    var rows = ki.indicators.map(function (row) {
+      var value = row.provincial_value;
+      var isCount = row.unit === "count";
+      var valueText = (value === null || value === undefined) ? "—" : (isCount ? fmtNum(value) : Number(value).toFixed(1));
+      var high = row.highest_district ? escHtml(row.highest_district.district) + " (" + (isCount ? fmtNum(row.highest_district.value) : Number(row.highest_district.value).toFixed(1)) + ")" : "—";
+      var low = row.lowest_district ? escHtml(row.lowest_district.district) + " (" + (isCount ? fmtNum(row.lowest_district.value) : Number(row.lowest_district.value).toFixed(1)) + ")" : "—";
+      return "<tr><td><strong>" + escHtml(row.label) + "</strong><div class=\"sub\">" + escHtml(row.unit) + "</div></td>" +
+        "<td class=\"ki-value\">" + valueText + "</td><td>" + high + "</td><td>" + low + "</td>" +
+        "<td><span class=\"badge neutral\">Not specified in source data</span></td></tr>";
+    }).join("");
+
+    var byKey = {};
+    ki.indicators.forEach(function (r) { byKey[r.key] = r; });
+    var insightId = "vpd-key-indicators-" + ki.year;
+    var autoInsight = "Province-wide (" + ki.year + ", " + fmtNum(ki.districts_covered) + " districts, population " + fmtNum(ki.total_population) + "): " +
+      "measles incidence " + Number(byKey.measles_incidence_per_million.provincial_value).toFixed(1) + " per million, " +
+      "non-measles/non-rubella discard rate " + Number(byKey.non_measles_non_rubella_rate.provincial_value).toFixed(1) + " per 100,000, " +
+      "sample collection " + Number(byKey.pct_sample_collected.provincial_value).toFixed(1) + "%, adequate investigation " +
+      Number(byKey.pct_adequate_investigation.provincial_value).toFixed(1) + "%, and " + fmtNum(byKey.measles_related_deaths.provincial_value) +
+      " measles-related death(s) reported. No numeric targets are defined for these indicators in the source workbook.";
+
+    return '<div class="card"><h2>Key Surveillance Indicators</h2>' +
+      '<p class="sub">From the Measles Indicator Sheet (' + escHtml(ki.year) + '), ' + fmtNum(ki.districts_covered) + ' districts. ' +
+      'The 6 rows below are the indicators highlighted in the source workbook.</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Indicator</th><th>Current Value (Province)</th><th>Highest District</th><th>Lowest District</th><th>Target</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      editableInsight(insightId, autoInsight) +
+    '</div>';
+  }
+
   function renderSurveillance() {
     var el = document.getElementById("tab-surveillance");
     var v = DATA.vpd;
+    var ki = DATA.vpd_key_indicators;
     if (v.status === "awaiting_data") {
+      // The Key Indicators section (from a separate workbook) works even
+      // when the MSL line list itself hasn't been uploaded -- same
+      // per-domain independence as every other tab in this dashboard.
+      if (ki && ki.status === "ok") {
+        el.innerHTML = '<div class="card"><h2>VPD Surveillance</h2><div class="placeholder-card">' +
+          '<div class="icon">⏳</div>No VPD surveillance line list was uploaded for this run -- showing the Key Surveillance Indicators from the Indicator Sheet only.</div></div>' +
+          keyIndicatorsSectionHtml(ki);
+        wireEditableInsights(el);
+        return;
+      }
       el.innerHTML = '<div class="card"><h2>VPD Surveillance</h2><div class="placeholder-card">' +
         '<div class="icon">⏳</div>No VPD surveillance file was uploaded for this run.</div></div>';
       return;
@@ -1352,6 +1400,8 @@
       '<div class="card"><h2>Districts Requiring Action</h2>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Confirmed</th><th>Data quality issues</th><th>Priority</th></tr></thead><tbody>' + actionRows + '</tbody></table></div>' +
       '</div>' +
+
+      keyIndicatorsSectionHtml(ki) +
 
       '<div class="card"><h2><span class="disease-tag" style="background:var(--diphtheria);"></span>Diphtheria</h2>' +
         '<div class="grid kpi-row">' + diphKpis + '</div>' +

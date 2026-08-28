@@ -15,9 +15,11 @@ match falls out as "unknown" with an honest message, never guessed at.
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 
 from .config import SHEET_NAMES, VPD_SHEET_NAMES
+from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
 
 COVERAGE_SIGNATURE = {name.strip().lower() for name in SHEET_NAMES.values()}
 VPD_SIGNATURE = {name.strip().lower() for name in VPD_SHEET_NAMES.values()}
@@ -31,7 +33,7 @@ MIN_MATCHING_SHEETS = 2
 
 @dataclass
 class DetectionResult:
-    workbook_type: str  # "coverage" | "vpd" | "unknown" | "empty" | "unreadable"
+    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "unknown" | "empty" | "unreadable"
     matched_sheets: list = field(default_factory=list)
     all_sheets: list = field(default_factory=list)
     message: str = ""
@@ -41,8 +43,26 @@ def _sheet_names(path: Path) -> list[str]:
     return pd.ExcelFile(path, engine="openpyxl").sheet_names
 
 
+def _is_indicator_sheet_workbook(path: Path) -> bool:
+    """The Measles Indicator Sheet workbook is a completely different shape
+    from Coverage/VPD (one sheet per year, e.g. '2026', not a fixed set of
+    named sheets) so it can't use the sheet-name-signature approach those
+    two use. Its one reliable, content-based marker: cell A1 of at least one
+    sheet literally reads '...Indicator Sheet-<year>' in the source file."""
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return False
+    for name in wb.sheetnames:
+        title = wb[name].cell(row=1, column=1).value
+        if title and INDICATOR_SHEET_TITLE_MARKER in str(title).strip().lower():
+            return True
+    return False
+
+
 def detect_workbook_type(path: Path) -> DetectionResult:
-    """Classify one .xlsx by its actual sheet names."""
+    """Classify one .xlsx by its actual sheet names (Coverage/VPD) or, for
+    the differently-shaped Indicator Sheet workbook, its A1 title marker."""
     try:
         sheets = _sheet_names(path)
     except Exception as e:
@@ -58,6 +78,12 @@ def detect_workbook_type(path: Path) -> DetectionResult:
     normalized = {s.strip().lower(): s for s in sheets}
     coverage_matches = [normalized[k] for k in normalized if k in COVERAGE_SIGNATURE]
     vpd_matches = [normalized[k] for k in normalized if k in VPD_SIGNATURE]
+
+    if not coverage_matches and not vpd_matches and _is_indicator_sheet_workbook(path):
+        return DetectionResult(
+            "indicator_sheet", [], sheets,
+            f"Recognized as a Measles Indicator Sheet workbook (cell A1 title marker found)."
+        )
 
     if len(coverage_matches) >= MIN_MATCHING_SHEETS and len(coverage_matches) >= len(vpd_matches):
         return DetectionResult(

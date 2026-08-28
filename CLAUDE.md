@@ -6,6 +6,24 @@
 - **Part 1b (VPD surveillance pipeline)**: done for measles-rubella, diphtheria,
   pertussis, NNT. `src/pipeline/{load_vpd,clean_vpd,indicators_vpd,run_vpd}.py`.
   AFP is stubbed (`AFP_STUB` in run_vpd.py) — no AFP line list has been received.
+  A separate, independent source (`src/pipeline/indicator_sheet_vpd.py`) reads
+  the "Measles Indicator Sheet" workbook — one sheet per year (e.g. `2026`),
+  a per-district table of pre-aggregated surveillance performance
+  indicators plus the source's own "Provincial Total" row, entirely
+  distinct from the MSL line list (different district total, since it's a
+  different pull from the source system — the two are shown side by side on
+  the dashboard, never reconciled against each other). Detected by an A1
+  cell title marker (`"...Indicator Sheet-<year>"`), not sheet names, since
+  every sheet is named after its year. 6 of its ~13 indicator columns are
+  highlighted a distinct fill color in the source file itself (confirmed by
+  inspecting cell fills) — those are the ones surfaced as "Key Surveillance
+  Indicators" on the dashboard (Non-Measles/Non-Rubella discard rate,
+  Measles incidence/million, Rubella incidence/million, % sample collected,
+  % adequate investigation, measles-related deaths). No target/threshold
+  value exists anywhere in the workbook (confirmed by inspection) — the
+  dashboard shows "Not specified in source data" rather than a guessed WHO
+  benchmark; highest/lowest district per indicator is shown instead, genuinely
+  sourced from the same per-district rows.
 - **Part 1c (Monitoring / supervisory-visit pipeline)**: done for RCA (Rapid
   Convenience Assessment, child-level field vaccination-status spot checks)
   and Supervisory Checklist (facility-level visit compliance).
@@ -201,6 +219,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 | `data/raw/Jan to Dec 2025.xlsx` | same 4 sheets | **Cumulative**, Jan–Dec 2025 | Same 37 district rows, same structure, larger (annual) numbers. Gives us a real second time point instead of a stub. |
 | `data/raw/RCA_Report_2.xls` | 1 HTML table, 50 columns, 340 child rows (34 RCA visits) | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
+| `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
 
 AFP (within VPD) has **not** been provided yet — see "Confirmed VPD decisions" below.
 

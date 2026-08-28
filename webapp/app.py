@@ -29,6 +29,7 @@ from src.bulletin.build import build as build_bulletin
 from src.dashboard.build import build as build_dashboard
 from src.pipeline.detect import detect_monitoring_file, detect_workbook_type
 from src.pipeline.export_excel import build_processed_excel
+from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
 from src.pipeline.run import run as run_coverage_pipeline
 from src.pipeline.run_monitoring import run_monitoring
 from src.pipeline.run_vpd import run_vpd
@@ -127,7 +128,7 @@ def generate():
     # file is routed to whatever pipeline it belongs to; a file that can't be
     # confidently identified is reported clearly rather than silently
     # dropped or guessed at, and never blocks the files that WERE recognized.
-    coverage_saved, vpd_saved, rca_saved, supervisory_saved = [], [], [], []
+    coverage_saved, vpd_saved, rca_saved, supervisory_saved, indicator_sheet_saved = [], [], [], [], []
     for name in saved:
         path = paths["raw"] / name
         result = detect_monitoring_file(path) if name.lower().endswith(".xls") else detect_workbook_type(path)
@@ -140,6 +141,8 @@ def generate():
             rca_saved.append(name)
         elif result.workbook_type == "supervisory":
             supervisory_saved.append(name)
+        elif result.workbook_type == "indicator_sheet":
+            indicator_sheet_saved.append(name)
         else:
             manifest["errors"].append(f"{name}: {result.message}")
 
@@ -181,6 +184,14 @@ def generate():
             manifest["errors"].append(f"Monitoring pipeline: {e}")
         except Exception:
             manifest["errors"].append("Monitoring pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+
+    # Independent of every other pipeline -- an Indicator Sheet upload with
+    # no line list (or vice versa) still works.
+    if indicator_sheet_saved:
+        try:
+            run_indicator_sheet(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except Exception:
+            manifest["errors"].append("Indicator Sheet pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
 
     # Always attempted, regardless of which pipelines ran or failed above --
     # build_dashboard degrades each tab independently (an "awaiting data"

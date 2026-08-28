@@ -147,6 +147,16 @@ def build_payload(processed_dir: Path) -> dict:
     else:
         vpd = VPD_AWAITING_STUB
 
+    vpd_indicator_summary_path = processed_dir / "vpd_indicator_summary.json"
+    if vpd_indicator_summary_path.exists():
+        with open(vpd_indicator_summary_path, encoding="utf-8") as f:
+            vpd_key_indicators = json.load(f)
+    else:
+        vpd_key_indicators = {
+            "status": "awaiting_data",
+            "message": "No Measles Indicator Sheet has been uploaded yet.",
+        }
+
     monitoring_summary_path = processed_dir / "monitoring_summary.json"
     if monitoring_summary_path.exists():
         with open(monitoring_summary_path, encoding="utf-8") as f:
@@ -185,6 +195,7 @@ def build_payload(processed_dir: Path) -> dict:
             "vpd_flags": _load_csv(processed_dir, "vpd_quality_flags.csv"),
         },
         "vpd": vpd,
+        "vpd_key_indicators": vpd_key_indicators,
         "monitoring": monitoring,
     }
 
@@ -202,10 +213,12 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     has_coverage = (processed_dir / "coverage_district.parquet").exists()
     has_vpd = (processed_dir / "vpd_summary.json").exists()
     has_monitoring = (processed_dir / "monitoring_summary.json").exists()
-    if not has_coverage and not has_vpd and not has_monitoring:
+    has_indicator_sheet = (processed_dir / "vpd_indicator_summary.json").exists()
+    if not has_coverage and not has_vpd and not has_monitoring and not has_indicator_sheet:
         raise SystemExit(
-            f"No processed data found in {processed_dir}. Run the coverage, VPD, and/or "
-            f"monitoring pipeline first to generate at least one dataset before building the dashboard."
+            f"No processed data found in {processed_dir}. Run the coverage, VPD, monitoring, "
+            f"and/or indicator-sheet pipeline first to generate at least one dataset before "
+            f"building the dashboard."
         )
 
     payload = build_payload(processed_dir)
