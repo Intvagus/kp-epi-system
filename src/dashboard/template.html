@@ -182,6 +182,20 @@
   .discordant-cell { background: var(--poor-bg); color: var(--poor); font-weight: 700; }
   .error-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
   .ki-value { font-size: 16px; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  .section-heading {
+    margin: 28px 0 4px 0; padding-bottom: 8px; border-bottom: 3px solid var(--navy);
+  }
+  .section-heading h2 { font-size: 19px; margin: 0; }
+  .section-heading .sub { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
+  .section-heading:first-child { margin-top: 0; }
+  .section-divider {
+    display: flex; align-items: center; gap: 12px; margin: 32px 0 4px 0;
+  }
+  .section-divider .line { flex: 1; height: 1px; background: var(--border); }
+  .section-divider .label {
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-dim); white-space: nowrap;
+  }
   footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
   button.export-btn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35);
@@ -223,7 +237,7 @@
     <div class="sub">Directorate General Health Services, Khyber Pakhtunkhwa &mdash; Expanded Programme on Immunization</div>
   </div>
   <div>
-    <label for="period-select" style="font-size:12px; margin-right:6px; opacity:0.85;">Coverage period:</label>
+    <label for="period-select" style="font-size:12px; margin-right:6px; opacity:0.85;">Service Delivery period:</label>
     <select id="period-select" class="period-select"></select>
     <span class="print-only" id="print-period-label" style="font-weight:700;"></span>
     <button class="export-btn" id="export-pdf-btn" title="Exports exactly what's currently on screen -- the active tab and whatever filters are selected">Download PDF</button>
@@ -232,9 +246,9 @@
 
 <nav class="tabs">
   <button data-tab="overview" class="active">Overview</button>
-  <button data-tab="coverage">Coverage</button>
-  <button data-tab="surveillance">Surveillance</button>
-  <button data-tab="supervision">Supervision</button>
+  <button data-tab="coverage">Service Delivery</button>
+  <button data-tab="surveillance">VPD Surveillance</button>
+  <button data-tab="supervision">Monitoring and Supervision</button>
   <button data-tab="quality">Data Quality</button>
 </nav>
 
@@ -339,7 +353,7 @@
     var prov = provinceRow();
     if (!prov) {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
-        'No Coverage data uploaded yet. See the Coverage tab, or the Surveillance/Supervision tabs if that\'s what was uploaded.</div></div>';
+        'No Service Delivery data uploaded yet. See the Service Delivery tab, or the VPD Surveillance/Monitoring and Supervision tabs if that\'s what was uploaded.</div></div>';
       return;
     }
 
@@ -957,7 +971,7 @@
     var summary = DATA.coverage_summary;
     if (summary.status !== "ok") {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
-        'No Coverage data uploaded yet.<br><span style="font-size:12px;">Upload a coverage workbook (District/Tehsil/UC Wise Analysis sheets) to populate this tab -- the Surveillance and Supervision tabs work independently and don\'t need it.</span></div></div>';
+        'No Service Delivery data uploaded yet.<br><span style="font-size:12px;">Upload a coverage workbook (District/Tehsil/UC Wise Analysis sheets) to populate this tab -- the VPD Surveillance and Monitoring and Supervision tabs work independently and don\'t need it.</span></div></div>';
       return;
     }
     var kinds = [];
@@ -1599,10 +1613,17 @@
     if (pct === null || pct === undefined) return "#9aa0a6";
     return pct >= goodMin ? "#1e8e3e" : pct >= warnMin ? "#b06a00" : "#c5221f";
   }
+  // "45 (32%)" -- the number first, percentage in parentheses, used on
+  // every count-based chart in Monitoring so a value is readable without
+  // hovering.
+  function countPct(count, total) {
+    var pct = total ? (count / total * 100) : null;
+    return fmtNum(count) + (pct === null ? "" : " (" + pct.toFixed(1) + "%)");
+  }
 
   function renderRcaSection(rca) {
     if (rca.status === "awaiting_data") {
-      return '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA (Rapid Convenience Assessment)</h2>' +
+      return '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
         '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(rca.message) + '</div></div>';
     }
     var ov = rca.overview, zd = rca.zero_dose;
@@ -1613,109 +1634,214 @@
       monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
     ].join("");
 
-    var htrEntry = rca.hard_to_reach, hrEntry = rca.high_risk_population;
-    var anomalyHtml = "";
+    var zdAnomalyHtml = "";
     if (zd.zero_dose_count > 0) {
       var zdRows = zd.by_district.map(function (r) {
         return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.zero_dose_count) + "</td></tr>";
       }).join("");
-      anomalyHtml = '<div class="anomaly-box"><h3>Zero-dose children identified by district</h3>' +
+      zdAnomalyHtml = '<div class="anomaly-box"><h3>Zero-dose children identified, for field follow-up</h3>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Zero-dose count</th></tr></thead><tbody>' + zdRows + '</tbody></table></div></div>';
     }
 
-    var insightId = "monitoring-rca-summary-" + (rca.reporting_window || "");
-    var autoInsight = fmtNum(ov.total_children_assessed) + " children assessed across " + fmtNum(ov.total_rca_visits) +
-      " RCA visits (" + (rca.reporting_window || "period not recorded") + "). " + fmtNum(zd.zero_dose_count) +
-      " zero-dose child(ren) identified (" + fmtPct(zd.zero_dose_pct) + " of assessed).";
+    var overviewInsightId = "monitoring-rca-summary-" + (rca.reporting_window || "");
+    var overviewAutoInsight = fmtNum(ov.total_children_assessed) + " children assessed across " + fmtNum(ov.total_rca_visits) +
+      " RCA visits (" + (rca.reporting_window || "period not recorded") + ") in " + fmtNum(ov.districts_covered) + " district(s), by " +
+      fmtNum(ov.monitors_involved) + " monitor(s). " + fmtNum(zd.zero_dose_count) +
+      " zero-dose child(ren) identified (" + fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1).";
+
+    var antigenInsightId = "monitoring-rca-antigen-" + (rca.reporting_window || "");
+    var lowestAntigen = rca.antigen_coverage.filter(function (r) { return r.pct !== null; })
+      .reduce(function (worst, r) { return (worst === null || r.pct < worst.pct) ? r : worst; }, null);
+    var antigenAutoInsight = lowestAntigen
+      ? "Lowest field-verified coverage: " + lowestAntigen.antigen + " at " + fmtPct(lowestAntigen.pct) +
+        " (" + lowestAntigen.vaccinated + " of " + lowestAntigen.assessed + " applicable children)."
+      : "No antigen coverage data available.";
+
+    var ageKeys = Object.keys(rca.age_group_breakdown);
+    var ageTotal = ageKeys.reduce(function (s, k) { return s + rca.age_group_breakdown[k]; }, 0);
+    var ageSexInsightId = "monitoring-rca-agesex-" + (rca.reporting_window || "");
+    var largestAgeGroup = ageKeys.reduce(function (best, k) { return (!best || rca.age_group_breakdown[k] > rca.age_group_breakdown[best]) ? k : best; }, null);
+    var ageSexAutoInsight = largestAgeGroup
+      ? "Largest age group assessed: " + largestAgeGroup + " months (" + countPct(rca.age_group_breakdown[largestAgeGroup], ageTotal) + " of children assessed)."
+      : "No age distribution data available.";
+
+    var areaTotal = ov.total_children_assessed;
+    var htr = rca.hard_to_reach, hrp = rca.high_risk_population;
+    var areaInsightId = "monitoring-rca-area-" + (rca.reporting_window || "");
+    var ruralRow = rca.area_type_breakdown.filter(function (r) { return /rural/i.test(r.area_type); })[0];
+    var areaAutoInsight = (ruralRow ? "Rural areas account for " + countPct(ruralRow.children_assessed, areaTotal) + " of children assessed. " : "") +
+      countPct(htr.children_in_hard_to_reach, areaTotal) + " were in hard-to-reach areas, and " +
+      countPct(hrp.children_in_high_risk_population, areaTotal) + " were in high-risk population groups.";
+
+    var mb = rca.monitor_breakdown;
+    var designationKeys = Object.keys(mb.by_designation);
+    var agencyKeys = Object.keys(mb.by_agency);
+    var monitorInsightId = "monitoring-rca-monitors-" + (rca.reporting_window || "");
+    var topDesignation = designationKeys.reduce(function (best, k) { return (!best || mb.by_designation[k] > mb.by_designation[best]) ? k : best; }, null);
+    var topAgency = agencyKeys.reduce(function (best, k) { return (!best || mb.by_agency[k] > mb.by_agency[best]) ? k : best; }, null);
+    var monitorAutoInsight = (topDesignation ? "Most RCA visits were conducted by " + topDesignation + " monitors (" + countPct(mb.by_designation[topDesignation], ov.total_rca_visits) + " of visits). " : "") +
+      (topAgency ? topAgency + " conducted " + countPct(mb.by_agency[topAgency], ov.total_rca_visits) + " of visits." : "");
+
+    var sourceInsightId = "monitoring-rca-source-" + (rca.reporting_window || "");
+    var sourceKeys = Object.keys(rca.vaccine_source_breakdown);
+    var sourceTotal = sourceKeys.reduce(function (s, k) { return s + rca.vaccine_source_breakdown[k]; }, 0);
+    var infoSourceKeys = Object.keys(rca.info_source_breakdown);
+    var topInfoSource = infoSourceKeys.reduce(function (best, k) { return (!best || rca.info_source_breakdown[k] > rca.info_source_breakdown[best]) ? k : best; }, null);
+    var sourceAutoInsight = "Vaccination status was confirmed by card for " + countPct(rca.vaccine_source_breakdown["card"] || 0, sourceTotal) + " of children" +
+      (topInfoSource ? "; the most-cited social mobilization channel was " + topInfoSource + " (" + fmtNum(rca.info_source_breakdown[topInfoSource]) + " mention(s))." : ".");
 
     var reasonsKeys = Object.keys(rca.non_vaccination_reasons);
-    var infoSourceKeys = Object.keys(rca.info_source_breakdown);
-    var ageKeys = Object.keys(rca.age_group_breakdown);
+    var reasonsTotal = reasonsKeys.reduce(function (s, k) { return s + rca.non_vaccination_reasons[k]; }, 0);
+    var reasonsInsightId = "monitoring-rca-reasons-" + (rca.reporting_window || "");
+    var topReason = reasonsKeys.reduce(function (best, k) { return (!best || rca.non_vaccination_reasons[k] > rca.non_vaccination_reasons[best]) ? k : best; }, null);
+    var reasonsAutoInsight = topReason
+      ? "Most-cited reason for non-vaccination: \"" + topReason + "\" (" + countPct(rca.non_vaccination_reasons[topReason], reasonsTotal) + " of " + fmtNum(reasonsTotal) + " recorded reasons)."
+      : "";
+
+    var trendInsightId = "monitoring-rca-trend-" + (rca.reporting_window || "");
+    var trendAutoInsight = "";
+    if (rca.daily_visit_trend.length > 1) {
+      var trendPeak = rca.daily_visit_trend.reduce(function (b, r) { return r.children_assessed > b.children_assessed ? r : b; });
+      trendAutoInsight = "Busiest day: " + trendPeak.visit_date + " with " + fmtNum(trendPeak.children_assessed) + " children assessed.";
+    }
 
     var html =
-      '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA (Rapid Convenience Assessment)</h2>' +
+      '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
+        '<p class="sub">Community-based, child-level spot checks of vaccination status.</p></div>' +
+      '<div class="card">' +
         '<div class="grid kpi-row">' + kpis + '</div>' +
-        editableInsight(insightId, autoInsight) +
-        anomalyHtml +
+        editableInsight(overviewInsightId, overviewAutoInsight) +
+        zdAnomalyHtml +
       '</div>' +
       '<div class="card"><h2>Antigen-wise Vaccination Status (field-verified)</h2>' +
         '<div class="chart-wrap tall"><canvas id="chart-rca-antigen"></canvas></div>' +
-        '<p class="sub">% Vaccinated among children for whom each antigen was applicable by age (excludes children not yet due).</p>' +
+        '<p class="sub">Children vaccinated, of those for whom each antigen was applicable by age (excludes children not yet due).</p>' +
+        editableInsight(antigenInsightId, antigenAutoInsight) +
       '</div>' +
-      '<div class="grid two-col">' +
-        '<div class="card"><h2>Age Group</h2><div class="chart-wrap"><canvas id="chart-rca-age"></canvas></div></div>' +
-        '<div class="card"><h2>Sex</h2><div class="chart-wrap"><canvas id="chart-rca-sex"></canvas></div></div>' +
+      '<div class="card"><h2>Age &amp; Sex Profile</h2>' +
+        '<div class="grid two-col">' +
+          '<div><h3>Age Group</h3><div class="chart-wrap"><canvas id="chart-rca-age"></canvas></div></div>' +
+          '<div><h3>Sex</h3><div class="chart-wrap"><canvas id="chart-rca-sex"></canvas></div></div>' +
+        '</div>' +
+        editableInsight(ageSexInsightId, ageSexAutoInsight) +
       '</div>' +
-      '<div class="card"><h2>Zero-Dose Rate by District</h2><div class="chart-wrap tall"><canvas id="chart-rca-district"></canvas></div></div>' +
-      '<div class="grid two-col">' +
-        '<div class="card"><h2>Vaccine Source</h2><div class="chart-wrap"><canvas id="chart-rca-source"></canvas></div>' +
-          '<p class="sub">Card = confirmed against a written record; recall = caregiver memory only.</p></div>' +
-        '<div class="card"><h2>Social Mobilization Channel</h2><div class="chart-wrap"><canvas id="chart-rca-infosource"></canvas></div></div>' +
+      '<div class="card"><h2>Area Profile</h2>' +
+        '<div class="grid three-col">' +
+          '<div><h3>Urban / Rural</h3><div class="chart-wrap"><canvas id="chart-rca-areatype"></canvas></div></div>' +
+          '<div><h3>Hard-to-Reach Area</h3><div class="chart-wrap"><canvas id="chart-rca-htr"></canvas></div></div>' +
+          '<div><h3>High-Risk Population</h3><div class="chart-wrap"><canvas id="chart-rca-hrp"></canvas></div></div>' +
+        '</div>' +
+        editableInsight(areaInsightId, areaAutoInsight) +
       '</div>' +
-      (reasonsKeys.length ? '<div class="card"><h2>Reasons for Non-Vaccination</h2><div class="chart-wrap"><canvas id="chart-rca-reasons"></canvas></div></div>' : "") +
-      (rca.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-rca-trend"></canvas></div></div>' : "");
+      '<div class="card"><h2>RCA Visits by Monitor</h2>' +
+        '<div class="grid two-col">' +
+          '<div><h3>By Designation</h3><div class="chart-wrap"><canvas id="chart-rca-designation"></canvas></div></div>' +
+          '<div><h3>By Agency</h3><div class="chart-wrap"><canvas id="chart-rca-agency"></canvas></div></div>' +
+        '</div>' +
+        editableInsight(monitorInsightId, monitorAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2>Verification Source &amp; Social Mobilization</h2>' +
+        '<div class="grid two-col">' +
+          '<div><h3>Vaccine Source</h3><div class="chart-wrap"><canvas id="chart-rca-source"></canvas></div>' +
+            '<p class="sub">Card = confirmed against a written record; recall = caregiver memory only.</p></div>' +
+          '<div><h3>Social Mobilization Channel</h3><div class="chart-wrap"><canvas id="chart-rca-infosource"></canvas></div></div>' +
+        '</div>' +
+        editableInsight(sourceInsightId, sourceAutoInsight) +
+      '</div>' +
+      (reasonsKeys.length ? '<div class="card"><h2>Reasons for Non-Vaccination</h2><div class="chart-wrap"><canvas id="chart-rca-reasons"></canvas></div>' +
+        editableInsight(reasonsInsightId, reasonsAutoInsight) + '</div>' : "") +
+      (rca.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-rca-trend"></canvas></div>' +
+        editableInsight(trendInsightId, trendAutoInsight) + '</div>' : "");
 
     return { html: html, build: function () {
-      destroyChart("rcaAntigen"); destroyChart("rcaAge"); destroyChart("rcaSex"); destroyChart("rcaDistrict");
+      destroyChart("rcaAntigen"); destroyChart("rcaAge"); destroyChart("rcaSex"); destroyChart("rcaAreaType");
+      destroyChart("rcaHtr"); destroyChart("rcaHrp"); destroyChart("rcaDesignation"); destroyChart("rcaAgency");
       destroyChart("rcaSource"); destroyChart("rcaInfoSource"); destroyChart("rcaReasons"); destroyChart("rcaTrend");
 
       charts.rcaAntigen = new Chart(document.getElementById("chart-rca-antigen"), {
         type: "bar",
         data: {
           labels: rca.antigen_coverage.map(function (r) { return r.antigen; }),
-          datasets: [{ label: "% Vaccinated (of applicable)", data: rca.antigen_coverage.map(function (r) { return r.pct; }),
+          datasets: [{ label: "Vaccinated (of applicable)", data: rca.antigen_coverage.map(function (r) { return r.vaccinated; }),
             backgroundColor: rca.antigen_coverage.map(function (r) { return targetMetColor(r.pct === null ? 0 : r.pct); }),
-            labelText: rca.antigen_coverage.map(function (r) { return r.pct === null ? "n/a" : fmtPct(r.pct) + " (" + r.vaccinated + "/" + r.assessed + ")"; }) }]
+            labelText: rca.antigen_coverage.map(function (r) { return r.pct === null ? "n/a" : countPct(r.vaccinated, r.assessed); }) }]
         },
-        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "20%" } } }
       });
 
       charts.rcaAge = new Chart(document.getElementById("chart-rca-age"), {
         type: "bar",
         data: { labels: ageKeys, datasets: [{ label: "Children", data: ageKeys.map(function (k) { return rca.age_group_breakdown[k]; }),
-          backgroundColor: "#1a5fb4", labelText: ageKeys.map(function (k) { return fmtNum(rca.age_group_breakdown[k]); }) }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
+          backgroundColor: "#1a5fb4", labelText: ageKeys.map(function (k) { return countPct(rca.age_group_breakdown[k], ageTotal); }) }] },
+        options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } }, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
       });
 
       var rcaSexDoughnut = doughnutData(rca.sex_breakdown);
       charts.rcaSex = new Chart(document.getElementById("chart-rca-sex"), {
         type: "doughnut",
         data: { labels: rcaSexDoughnut.labels, datasets: [{ data: rcaSexDoughnut.values, backgroundColor: rcaSexDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
       });
 
-      var districtRows = rca.district_breakdown.slice().sort(function (a, b) { return (b.zero_dose_pct || 0) - (a.zero_dose_pct || 0); });
-      charts.rcaDistrict = new Chart(document.getElementById("chart-rca-district"), {
+      var areaTypeCounts = {};
+      rca.area_type_breakdown.forEach(function (r) { areaTypeCounts[r.area_type] = r.children_assessed; });
+      var areaTypeDoughnut = doughnutData(areaTypeCounts);
+      charts.rcaAreaType = new Chart(document.getElementById("chart-rca-areatype"), {
+        type: "doughnut",
+        data: { labels: areaTypeDoughnut.labels, datasets: [{ data: areaTypeDoughnut.values, backgroundColor: areaTypeDoughnut.colors }] },
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+      });
+
+      var htrDoughnut = doughnutData({ "Yes": htr.children_in_hard_to_reach, "No": areaTotal - htr.children_in_hard_to_reach });
+      charts.rcaHtr = new Chart(document.getElementById("chart-rca-htr"), {
+        type: "doughnut",
+        data: { labels: htrDoughnut.labels, datasets: [{ data: htrDoughnut.values, backgroundColor: ["#b06a00", "#1a5fb4"] }] },
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+      });
+
+      var hrpDoughnut = doughnutData({ "Yes": hrp.children_in_high_risk_population, "No": areaTotal - hrp.children_in_high_risk_population });
+      charts.rcaHrp = new Chart(document.getElementById("chart-rca-hrp"), {
+        type: "doughnut",
+        data: { labels: hrpDoughnut.labels, datasets: [{ data: hrpDoughnut.values, backgroundColor: ["#c5221f", "#1a5fb4"] }] },
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+      });
+
+      var designationTotal = designationKeys.reduce(function (s, k) { return s + mb.by_designation[k]; }, 0);
+      charts.rcaDesignation = new Chart(document.getElementById("chart-rca-designation"), {
         type: "bar",
-        data: {
-          labels: districtRows.map(function (r) { return r.district; }),
-          datasets: [{ label: "Zero-dose %", data: districtRows.map(function (r) { return r.zero_dose_pct; }),
-            backgroundColor: districtRows.map(function (r) { return (r.zero_dose_pct || 0) > 0 ? "#c5221f" : "#1e8e3e"; }),
-            labelText: districtRows.map(function (r) { return fmtPct(r.zero_dose_pct) + " (" + r.zero_dose_count + "/" + r.children_assessed + ")"; }) }]
-        },
-        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { min: 0, max: 100 } } }
+        data: { labels: designationKeys, datasets: [{ label: "RCA visits", data: designationKeys.map(function (k) { return mb.by_designation[k]; }),
+          backgroundColor: "#0f766e", labelText: designationKeys.map(function (k) { return countPct(mb.by_designation[k], designationTotal); }) }] },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "25%" } } }
+      });
+
+      var agencyDoughnut = doughnutData(mb.by_agency);
+      charts.rcaAgency = new Chart(document.getElementById("chart-rca-agency"), {
+        type: "doughnut",
+        data: { labels: agencyDoughnut.labels, datasets: [{ data: agencyDoughnut.values, backgroundColor: agencyDoughnut.colors }] },
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
       });
 
       var rcaSourceDoughnut = doughnutData(rca.vaccine_source_breakdown);
       charts.rcaSource = new Chart(document.getElementById("chart-rca-source"), {
         type: "doughnut",
         data: { labels: rcaSourceDoughnut.labels, datasets: [{ data: rcaSourceDoughnut.values, backgroundColor: rcaSourceDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
       });
 
+      var infoSourceTotal = infoSourceKeys.reduce(function (s, k) { return s + rca.info_source_breakdown[k]; }, 0);
       charts.rcaInfoSource = new Chart(document.getElementById("chart-rca-infosource"), {
         type: "bar",
         data: { labels: infoSourceKeys, datasets: [{ label: "Mentions", data: infoSourceKeys.map(function (k) { return rca.info_source_breakdown[k]; }),
-          backgroundColor: "#0f766e", labelText: infoSourceKeys.map(function (k) { return fmtNum(rca.info_source_breakdown[k]); }) }] },
-        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "15%" } } }
+          backgroundColor: "#0f766e", labelText: infoSourceKeys.map(function (k) { return countPct(rca.info_source_breakdown[k], infoSourceTotal); }) }] },
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "25%" } } }
       });
 
       if (reasonsKeys.length) {
         charts.rcaReasons = new Chart(document.getElementById("chart-rca-reasons"), {
           type: "bar",
           data: { labels: reasonsKeys, datasets: [{ label: "Cases", data: reasonsKeys.map(function (k) { return rca.non_vaccination_reasons[k]; }),
-            backgroundColor: "#c5221f", labelText: reasonsKeys.map(function (k) { return fmtNum(rca.non_vaccination_reasons[k]); }) }] },
-          options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "15%" } } }
+            backgroundColor: "#c5221f", labelText: reasonsKeys.map(function (k) { return countPct(rca.non_vaccination_reasons[k], reasonsTotal); }) }] },
+          options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "25%" } } }
         });
       }
       if (rca.daily_visit_trend.length > 1) {
@@ -1734,7 +1860,9 @@
 
   function renderSupervisorySection(sup) {
     if (sup.status === "awaiting_data") {
-      return { html: '<div class="card"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
+      return { html:
+        '<div class="section-divider"><div class="line"></div><div class="label">Supervisory Checklist</div><div class="line"></div></div>' +
+        '<div class="card"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
         '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(sup.message) + '</div></div>', build: function () {} };
     }
     var ov = sup.overview;
@@ -1755,7 +1883,7 @@
     var riskHtml = "";
     if (sup.practice_risk_flags.length) {
       var riskPills = sup.practice_risk_flags.map(function (r) {
-        return '<span class="badge poor">' + escHtml(r.item) + ": " + ratePct(r.pct) + ' (' + r.yes + '/' + r.answered + ')</span>';
+        return '<span class="badge poor">' + escHtml(r.item) + ": " + countPct(r.yes, r.answered) + '</span>';
       }).join(" ");
       riskHtml = '<div class="alert-pills" style="margin-top:10px;">' + riskPills + '</div>';
     }
@@ -1783,28 +1911,85 @@
     }
     var rankings = sup.facility_rankings_operations_quality;
 
-    var insightId = "monitoring-supervisory-summary-" + (sup.reporting_window || "");
-    var autoInsight = fmtNum(ov.total_visits) + " supervisory visits to " + fmtNum(ov.facilities_covered) + " facilities (" +
-      (sup.reporting_window || "period not recorded") + "). Operations Quality averaged " +
-      ratePct((sup.composite_scores.filter(function (s) { return s.category === "Operations Quality"; })[0] || {}).avg_pct) + "." +
+    var overviewInsightId = "monitoring-supervisory-summary-" + (sup.reporting_window || "");
+    var overviewAutoInsight = fmtNum(ov.total_visits) + " supervisory visits to " + fmtNum(ov.facilities_covered) + " facilities (" +
+      (sup.reporting_window || "period not recorded") + "), " + fmtNum(ov.districts_covered) + " district(s), by " + fmtNum(ov.monitors_involved) + " monitor(s)." +
       (sup.practice_risk_flags.length ? " " + sup.practice_risk_flags[0].item + " observed in " + ratePct(sup.practice_risk_flags[0].pct) + " of visits." : "");
 
+    var scoresInsightId = "monitoring-supervisory-scores-" + (sup.reporting_window || "");
+    var bestScore = sup.composite_scores.reduce(function (b, s) { return (s.avg_pct !== null && (!b || s.avg_pct > b.avg_pct)) ? s : b; }, null);
+    var worstScore = sup.composite_scores.reduce(function (w, s) { return (s.avg_pct !== null && (!w || s.avg_pct < w.avg_pct)) ? s : w; }, null);
+    var scoresAutoInsight = (bestScore && worstScore)
+      ? "Highest-scoring category: " + bestScore.category + " (" + ratePct(bestScore.avg_pct) + " average). Lowest: " + worstScore.category + " (" + ratePct(worstScore.avg_pct) + " average)."
+      : "";
+
+    var complianceInsightId = "monitoring-supervisory-compliance-" + (sup.reporting_window || "");
+    var weakestItem = compItems.length ? compItems[0] : null;
+    var complianceAutoInsight = weakestItem
+      ? "Weakest checklist item: \"" + weakestItem.item + "\" at " + countPct(weakestItem.yes, weakestItem.answered) + " compliance."
+      : "";
+
+    var coldChainInsightId = "monitoring-supervisory-coldchain-" + (sup.reporting_window || "");
+    var coldChainAutoInsight = "Backup power was available at " + countPct(cc.backup_power_available.yes, cc.backup_power_available.answered) + " of visited sites, with " +
+      countPct(cc.stockout_last_3_months.yes, cc.stockout_last_3_months.answered) + " reporting a stockout in the last 3 months.";
+
+    var siteTypeInsightId = "monitoring-supervisory-sitetype-" + (sup.reporting_window || "");
+    var siteTypeKeys = Object.keys(sup.site_type_breakdown);
+    var siteTypeTotal = siteTypeKeys.reduce(function (s, k) { return s + sup.site_type_breakdown[k]; }, 0);
+    var topSiteType = siteTypeKeys.reduce(function (best, k) { return (!best || sup.site_type_breakdown[k] > sup.site_type_breakdown[best]) ? k : best; }, null);
+    var siteTypeAutoInsight = topSiteType ? "Most visits were to " + topSiteType + " sites (" + countPct(sup.site_type_breakdown[topSiteType], siteTypeTotal) + " of visits)." : "";
+
+    var trendInsightId = "monitoring-supervisory-trend-" + (sup.reporting_window || "");
+    var trendAutoInsight = "";
+    if (sup.daily_visit_trend.length > 1) {
+      var supTrendPeak = sup.daily_visit_trend.reduce(function (b, r) { return r.visits > b.visits ? r : b; });
+      trendAutoInsight = "Busiest day: " + supTrendPeak.visit_date + " with " + fmtNum(supTrendPeak.visits) + " visit(s).";
+    }
+
+    var districtInsightId = "monitoring-supervisory-district-" + (sup.reporting_window || "");
+    var districtAutoInsight = sup.district_breakdown.length
+      ? sup.district_breakdown.length + " district(s) covered; " + sup.district_breakdown[0].district + " received the most visits (" + fmtNum(sup.district_breakdown[0].visits) + ")."
+      : "";
+
+    var facilityInsightId = "monitoring-supervisory-facility-" + (sup.reporting_window || "");
+    var facilityAutoInsight = (rankings.top.length && rankings.bottom.length)
+      ? "Highest Operations Quality: " + rankings.top[0].health_facility + " (" + ratePct(rankings.top[0].pct) + "). Lowest: " +
+        rankings.bottom[rankings.bottom.length - 1].health_facility + " (" + ratePct(rankings.bottom[rankings.bottom.length - 1].pct) + ")."
+      : "";
+
     var html =
-      '<div class="card"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
+      '<div class="section-divider"><div class="line"></div><div class="label">Supervisory Checklist</div><div class="line"></div></div>' +
+      '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--supervisory);"></span>Supervisory Checklist</h2>' +
+        '<p class="sub">Facility-level supervisory visits assessing site readiness, cold chain, injection safety, and service quality.</p></div>' +
+      '<div class="card">' +
         '<div class="grid kpi-row">' + kpis + '</div>' +
-        editableInsight(insightId, autoInsight) +
+        editableInsight(overviewInsightId, overviewAutoInsight) +
         riskHtml +
       '</div>' +
-      '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat + '</div>' +
-      '<div class="card"><h2>Checklist Item Compliance (weakest first)</h2><div class="chart-wrap" style="height:' + Math.max(260, compItems.length * 24) + 'px;"><canvas id="chart-sup-compliance"></canvas></div></div>' +
-      '<div class="card"><h2>Cold Chain &amp; Vaccine Supply</h2><div class="grid kpi-row">' + coldChainKpis + '</div></div>' +
-      '<div class="card"><h2>Site Type</h2><div class="chart-wrap"><canvas id="chart-sup-sitetype"></canvas></div></div>' +
-      (sup.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-sup-trend"></canvas></div></div>' : "") +
-      '<h3>District-wise Composite Scores</h3>' +
-      '<div class="card"><div class="table-scroll"><table><thead><tr><th>District</th><th>Visits</th><th>Service Functionality</th><th>Monitoring System Quality</th><th>Operations Quality</th><th>Practices &amp; Knowledge</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div></div>' +
-      '<div class="grid two-col">' +
-        '<div class="card"><h2>Top 5 Facilities (Operations Quality)</h2><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.top) + '</tbody></table></div></div>' +
-        '<div class="card"><h2>Bottom 5 Facilities (Operations Quality)</h2><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.bottom) + '</tbody></table></div></div>' +
+      '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat +
+        editableInsight(scoresInsightId, scoresAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2>Checklist Item Compliance (weakest first)</h2><div class="chart-wrap" style="height:' + Math.max(260, compItems.length * 24) + 'px;"><canvas id="chart-sup-compliance"></canvas></div>' +
+        editableInsight(complianceInsightId, complianceAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2>Cold Chain &amp; Vaccine Supply</h2><div class="grid kpi-row">' + coldChainKpis + '</div>' +
+        editableInsight(coldChainInsightId, coldChainAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2>Site Type</h2><div class="chart-wrap"><canvas id="chart-sup-sitetype"></canvas></div>' +
+        editableInsight(siteTypeInsightId, siteTypeAutoInsight) +
+      '</div>' +
+      (sup.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-sup-trend"></canvas></div>' +
+        editableInsight(trendInsightId, trendAutoInsight) + '</div>' : "") +
+      '<div class="card"><h2>District-wise Composite Scores</h2>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Visits</th><th>Service Functionality</th><th>Monitoring System Quality</th><th>Operations Quality</th><th>Practices &amp; Knowledge</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div>' +
+        editableInsight(districtInsightId, districtAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2>Facility Rankings (Operations Quality)</h2>' +
+        '<div class="grid two-col">' +
+          '<div><h3>Top 5</h3><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.top) + '</tbody></table></div></div>' +
+          '<div><h3>Bottom 5</h3><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.bottom) + '</tbody></table></div></div>' +
+        '</div>' +
+        editableInsight(facilityInsightId, facilityAutoInsight) +
       '</div>';
 
     return { html: html, build: function () {
@@ -1814,18 +1999,18 @@
         type: "bar",
         data: {
           labels: compItems.map(function (r) { return r.item; }),
-          datasets: [{ label: "% Yes", data: compItems.map(function (r) { return r.pct; }),
+          datasets: [{ label: "Yes", data: compItems.map(function (r) { return r.yes; }),
             backgroundColor: compItems.map(function (r) { return rateColor(r.pct, 80, 50); }),
-            labelText: compItems.map(function (r) { return fmtPct(r.pct) + " (" + r.yes + "/" + r.answered + ")"; }) }]
+            labelText: compItems.map(function (r) { return countPct(r.yes, r.answered); }) }]
         },
-        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
+        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "20%" } } }
       });
 
       var supSiteDoughnut = doughnutData(sup.site_type_breakdown);
       charts.supSiteType = new Chart(document.getElementById("chart-sup-sitetype"), {
         type: "doughnut",
         data: { labels: supSiteDoughnut.labels, datasets: [{ data: supSiteDoughnut.values, backgroundColor: supSiteDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
       });
 
       if (sup.daily_visit_trend.length > 1) {
@@ -1846,7 +2031,7 @@
     var el = document.getElementById("tab-supervision");
     var m = DATA.monitoring;
     if (m.rca.status === "awaiting_data" && m.supervisory.status === "awaiting_data") {
-      el.innerHTML = '<div class="card"><h2>Monitoring</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
+      el.innerHTML = '<div class="card"><h2>Monitoring and Supervision</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
         'No RCA or Supervisory Checklist data has been received yet. This tab will populate automatically once either file is uploaded.</div></div>';
       return;
     }

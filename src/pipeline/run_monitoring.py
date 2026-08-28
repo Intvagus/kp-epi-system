@@ -43,6 +43,7 @@ def _build_rca_summary(rca: pd.DataFrame) -> dict:
         "status": "ok",
         "reporting_window": _date_range_label(rca["visit_date"]),
         "overview": ind.rca_overview(rca),
+        "monitor_breakdown": ind.rca_monitor_breakdown(rca),
         "antigen_coverage": ind.rca_antigen_coverage(rca),
         "zero_dose": ind.rca_zero_dose_summary(rca),
         "district_breakdown": ind.rca_district_breakdown(rca),

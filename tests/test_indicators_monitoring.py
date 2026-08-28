@@ -35,6 +35,14 @@ def test_rca_overview_matches_raw_counts(rca):
     assert overview["districts_covered"] == 1
 
 
+def test_rca_monitor_breakdown_counts_visits_not_child_rows(rca):
+    breakdown = ind.rca_monitor_breakdown(rca)
+    assert sum(breakdown["by_designation"].values()) == 34
+    assert sum(breakdown["by_agency"].values()) == 34
+    assert breakdown["by_designation"]["FSV"] == 28
+    assert breakdown["by_agency"]["GOVT"] == 31
+
+
 def test_rca_antigen_coverage_excludes_not_applicable_from_denominator(rca):
     rows = {r["antigen"]: r for r in ind.rca_antigen_coverage(rca)}
     bcg = rows["BCG"]

@@ -11,6 +11,18 @@ from .config import RCA_VACCINE_ANTIGENS
 from .clean_monitoring import RCA_ANTIGEN_FIELD_MAP, SUPERVISORY_YES_NO_FIELDS
 
 
+def _value_counts_dropna_false(series: pd.Series) -> dict:
+    """value_counts(dropna=False) keeps a missing value bucketed (not
+    silently dropped from the total), but its key is float('nan') --
+    JSON's key-stringification turns that into the literal text "NaN",
+    which read as a real category name on the dashboard. Relabelled to a
+    human-readable bucket here, once, for every breakdown that needs it."""
+    counts = series.value_counts(dropna=False).to_dict()
+    if np.nan in counts:
+        counts["Not Recorded"] = counts.pop(np.nan)
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # RCA (Rapid Convenience Assessment)
 # ---------------------------------------------------------------------------
@@ -21,6 +33,17 @@ def rca_overview(df: pd.DataFrame) -> dict:
         "total_rca_visits": int(df["record_id"].nunique()),
         "districts_covered": int(df["district"].nunique()),
         "monitors_involved": int(df["monitor_name"].nunique()),
+    }
+
+
+def rca_monitor_breakdown(df: pd.DataFrame) -> dict:
+    """Number of RCA visits (not child rows) per monitor designation and per
+    monitor agency -- deduplicated by record_id, since each visit has
+    multiple child rows sharing the same monitor."""
+    visits = df.drop_duplicates(subset="record_id")
+    return {
+        "by_designation": _value_counts_dropna_false(visits["monitor_designation"]),
+        "by_agency": _value_counts_dropna_false(visits["monitor_agency"]),
     }
 
 
@@ -76,13 +99,7 @@ def rca_age_group_breakdown(df: pd.DataFrame) -> dict:
 
 
 def rca_sex_breakdown(df: pd.DataFrame) -> dict:
-    # dropna=False so a blank Gender cell is still counted somewhere (not
-    # silently dropped from the total) -- relabelled from pandas/JSON's
-    # "NaN" to a human-readable bucket name for display.
-    counts = df["sex"].value_counts(dropna=False).to_dict()
-    if np.nan in counts:
-        counts["Not Recorded"] = counts.pop(np.nan)
-    return counts
+    return _value_counts_dropna_false(df["sex"])
 
 
 def rca_area_type_breakdown(df: pd.DataFrame) -> list[dict]:
@@ -120,7 +137,7 @@ def rca_high_risk_summary(df: pd.DataFrame) -> dict:
 def rca_vaccine_source_breakdown(df: pd.DataFrame) -> dict:
     """card vs. recall -- a proxy for how verifiable the assessment is
     (card = confirmed against a written record; recall = caregiver memory)."""
-    return df["vaccine_source"].value_counts(dropna=False).to_dict()
+    return _value_counts_dropna_false(df["vaccine_source"])
 
 
 def rca_non_vaccination_reasons(df: pd.DataFrame) -> dict:
@@ -189,7 +206,7 @@ def supervisory_composite_scores(df: pd.DataFrame) -> list[dict]:
 
 
 def supervisory_site_type_breakdown(df: pd.DataFrame) -> dict:
-    return df["site_type"].value_counts(dropna=False).to_dict()
+    return _value_counts_dropna_false(df["site_type"])
 
 
 def supervisory_hf_type_breakdown(df: pd.DataFrame) -> dict:
