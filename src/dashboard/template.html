@@ -543,6 +543,54 @@
     };
   }
 
+  // Draws "N (P%)" directly inside each doughnut/pie slice, not just on
+  // hover or in the legend -- required for a static screenshot/PDF export
+  // to carry the same numbers as the live chart. A slice under 6% of the
+  // total is too thin to hold readable text without overlapping its
+  // neighbours, so it's skipped here (the legend still shows its exact
+  // count/percentage via doughnutData).
+  var doughnutSliceLabelsPlugin = {
+    id: "doughnutSliceLabels",
+    afterDatasetsDraw: function (chart) {
+      if (chart.config.type !== "doughnut" && chart.config.type !== "pie") return;
+      // Opt-in per chart (options.sliceLabelsOn: true) rather than applying
+      // to every doughnut in the dashboard -- charts outside the section
+      // currently being worked on keep their existing look. Deliberately
+      // NOT named options.plugins.doughnutSliceLabels: Chart.js treats
+      // options.plugins.<pluginId> as its own built-in enable/disable
+      // switch for the plugin (defaults to enabled), so a flag reusing the
+      // plugin's id there would read as "on" for every chart regardless of
+      // what's actually set.
+      if (!chart.options.sliceLabelsOn) return;
+      var ctx = chart.ctx;
+      chart.data.datasets.forEach(function (dataset, di) {
+        var meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        var total = dataset.data.reduce(function (s, v) { return s + (v || 0); }, 0);
+        if (!total) return;
+        meta.data.forEach(function (arc, i) {
+          var value = dataset.data[i];
+          var pct = value / total * 100;
+          if (pct < 6) return;
+          var angle = (arc.startAngle + arc.endAngle) / 2;
+          var radius = (arc.innerRadius + arc.outerRadius) / 2;
+          var x = arc.x + Math.cos(angle) * radius;
+          var y = arc.y + Math.sin(angle) * radius;
+          ctx.save();
+          ctx.font = "700 12px -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+          ctx.fillStyle = "#fff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.shadowColor = "rgba(0,0,0,0.45)";
+          ctx.shadowBlur = 3;
+          ctx.fillText(fmtNum(value) + " (" + pct.toFixed(1) + "%)", x, y);
+          ctx.restore();
+        });
+      });
+    },
+  };
+  Chart.register(doughnutSliceLabelsPlugin);
+
   function kpiCard(label, value, sub, rag) {
     return '<div class="kpi-card' + (rag ? " rag-" + rag : "") + '"><div class="label">' + label + '</div>' +
       '<div class="value' + (rag ? " " + ragTextClass(rag) : "") + '">' + value + '</div>' +
@@ -1200,22 +1248,64 @@
       fmtNum(msl.suspected_ytd) + " cumulative since week 1. " + fmtNum(dq.duplicate_epid.duplicate_epid_count) + " duplicate Epid number(s) and " +
       fmtNum(anomaly.anomaly_count) + " under-9m vaccinated-anomaly case(s) need follow-up.";
 
+    // ---- Auto-generated insights for Daily EPI Curve / Weekly Trend / Final Classification & Outcome ----
+    var dailyCurve = msl.daily_epi_curve;
+    var dailyPeak = dailyCurve.reduce(function (best, r) { return r.case_count > best.case_count ? r : best; }, dailyCurve[0] || { case_count: 0 });
+    var dailyLatest = dailyCurve.length ? dailyCurve[dailyCurve.length - 1] : null;
+    var dailyCurveAutoInsight = dailyCurve.length
+      ? "Peak daily onset: " + fmtNum(dailyPeak.case_count) + " suspected case(s) on " + dailyPeak.onset_day + ". " +
+        "Most recent day (" + (dailyLatest ? dailyLatest.onset_day : "—") + "): " + fmtNum(dailyLatest ? dailyLatest.case_count : 0) +
+        " case(s), 7-day average " + (dailyLatest ? dailyLatest.rolling_7d_avg.toFixed(1) : "—") + "."
+      : "No rash-onset dates recorded yet.";
+
+    var wt = msl.weekly_trend;
+    var wtPeakMeasles = wt.reduce(function (best, r) { return r.measles_confirmed > best.measles_confirmed ? r : best; }, wt[0] || { measles_confirmed: 0 });
+    var wtLatest = wt.length ? wt[wt.length - 1] : null;
+    var weeklyTrendAutoInsight = wt.length
+      ? "Week " + (wtLatest ? wtLatest.epi_week : "—") + " (latest): " + fmtNum(wtLatest ? wtLatest.measles_confirmed : 0) + " measles confirmed, " +
+        fmtNum(wtLatest ? wtLatest.rubella_confirmed : 0) + " rubella confirmed, " + fmtNum(wtLatest ? wtLatest.discarded : 0) + " discarded. " +
+        "Highest weekly measles-confirmed count so far: " + fmtNum(wtPeakMeasles.measles_confirmed) + " in week " + wtPeakMeasles.epi_week + "."
+      : "No weekly data available yet.";
+
+    var classKeysForInsight = Object.keys(msl.classification_breakdown).sort(function (a, b) { return msl.classification_breakdown[b] - msl.classification_breakdown[a]; });
+    var outcomeKeysForInsight = Object.keys(msl.outcome_breakdown).sort(function (a, b) { return msl.outcome_breakdown[b] - msl.outcome_breakdown[a]; });
+    var topClass = classKeysForInsight[0], topOutcome = outcomeKeysForInsight[0];
+    var classTotal = classKeysForInsight.reduce(function (s, k) { return s + msl.classification_breakdown[k]; }, 0);
+    var outcomeTotal = outcomeKeysForInsight.reduce(function (s, k) { return s + msl.outcome_breakdown[k]; }, 0);
+    var classificationOutcomeAutoInsight = topClass
+      ? "Most common classification: " + topClass + " (" + fmtNum(msl.classification_breakdown[topClass]) + " of " + fmtNum(classTotal) +
+        ", " + (classTotal ? (msl.classification_breakdown[topClass] / classTotal * 100).toFixed(1) : "0.0") + "%). " +
+        "Most common outcome: " + topOutcome + " (" + fmtNum(msl.outcome_breakdown[topOutcome]) + " of " + fmtNum(outcomeTotal) +
+        ", " + (outcomeTotal ? (msl.outcome_breakdown[topOutcome] / outcomeTotal * 100).toFixed(1) : "0.0") + "%)."
+      : "No classification data available yet.";
+
     el.innerHTML =
       '<div class="card"><h2><span class="disease-tag" style="background:var(--measles);"></span>Measles &amp; Rubella (weeks 1-' + v.latest_epi_week + ', 2026)</h2>' +
         '<div class="grid kpi-row">' + mslKpis + '</div>' +
         editableInsight(mslInsightId, mslAutoInsight) +
       '</div>' +
 
-      '<div class="card"><h2>Epidemiological Trends</h2>' +
-        '<h3>Daily epi curve (by rash onset date, with 7-day rolling average)</h3>' +
+      '<div class="card"><h2>Daily EPI Curve</h2>' +
+        '<p class="sub">Daily suspected-case count by rash onset date (as recorded in the line list), with a 7-day rolling average.</p>' +
         '<div class="chart-wrap tall"><canvas id="chart-msl-daily"></canvas></div>' +
-        '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-msl-trend"></canvas></div>' +
-        '<div class="grid two-col" style="margin-top:10px;">' +
-          '<div><h3>Final classification</h3><div class="chart-wrap"><canvas id="chart-msl-classification"></canvas></div></div>' +
-          '<div><h3>Outcomes</h3><div class="chart-wrap"><canvas id="chart-msl-outcome"></canvas></div></div>' +
-        '</div>' +
-        '<h3 style="margin-top:10px;">Complications</h3><div class="chart-wrap"><canvas id="chart-msl-complications"></canvas></div>' +
+        editableInsight("vpd-msl-daily-curve-" + v.latest_epi_week, dailyCurveAutoInsight) +
       '</div>' +
+
+      '<div class="card"><h2>Weekly Trend</h2>' +
+        '<p class="sub">Confirmed measles, confirmed rubella, and discarded suspected cases per epi week.</p>' +
+        '<div class="chart-wrap tall"><canvas id="chart-msl-weekly-trend"></canvas></div>' +
+        editableInsight("vpd-msl-weekly-trend-" + v.latest_epi_week, weeklyTrendAutoInsight) +
+      '</div>' +
+
+      '<div class="card"><h2>Final Classification &amp; Case Outcome</h2>' +
+        '<div class="grid two-col">' +
+          '<div><h3>Final classification</h3><div class="chart-wrap tall"><canvas id="chart-msl-classification"></canvas></div></div>' +
+          '<div><h3>Case outcome</h3><div class="chart-wrap tall"><canvas id="chart-msl-outcome"></canvas></div></div>' +
+        '</div>' +
+        editableInsight("vpd-msl-classification-outcome-" + v.latest_epi_week, classificationOutcomeAutoInsight) +
+      '</div>' +
+
+      '<div class="card"><h2>Complications</h2><div class="chart-wrap"><canvas id="chart-msl-complications"></canvas></div></div>' +
 
       '<div class="card"><h2>Population Profile</h2>' +
         '<h3>Top districts by suspected case load</h3><div class="chart-wrap tall"><canvas id="chart-msl-top-districts"></canvas></div>' +
@@ -1278,7 +1368,7 @@
 
     wireEditableInsights(el);
 
-    destroyChart("mslDaily"); destroyChart("mslTrend"); destroyChart("mslClassification"); destroyChart("mslOutcome");
+    destroyChart("mslDaily"); destroyChart("mslWeeklyTrend"); destroyChart("mslClassification"); destroyChart("mslOutcome");
     destroyChart("mslComplications"); destroyChart("mslTopDistricts"); destroyChart("mslAge"); destroyChart("mslSex");
     destroyChart("mslDose"); destroyChart("msl2doseDistricts"); destroyChart("mslTimeliness"); destroyChart("diphTrend");
 
@@ -1314,27 +1404,31 @@
       }
     });
 
+    // ---- Weekly Trend: grouped bar chart, one bar per week per series,
+    // every bar permanently labelled with its value (per-bar tooltip
+    // numbers alone aren't visible in a static export). ----
     var trend = msl.weekly_trend;
-    var trendSuspected = trend.map(function (r) { return r.suspected; });
     var trendMeasles = trend.map(function (r) { return r.measles_confirmed; });
     var trendRubella = trend.map(function (r) { return r.rubella_confirmed; });
-    var trendSuspectedLabels = peakLatestLabels(trendSuspected);
-    var trendMeaslesLabels = peakLatestLabels(trendMeasles);
-    var trendRubellaLabels = peakLatestLabels(trendRubella);
-    charts.mslTrend = new Chart(document.getElementById("chart-msl-trend"), {
-      type: "line",
+    var trendDiscarded = trend.map(function (r) { return r.discarded; });
+    charts.mslWeeklyTrend = new Chart(document.getElementById("chart-msl-weekly-trend"), {
+      type: "bar",
       data: {
         labels: trend.map(function (r) { return "W" + r.epi_week; }),
         datasets: [
-          { label: "Suspected", data: trendSuspected, borderColor: "#1a3a7a", backgroundColor: "#1a3a7a", tension: 0.2,
-            pointRadius: trendSuspectedLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendSuspectedLabels },
-          { label: "Measles confirmed", data: trendMeasles, borderColor: "#c5221f", backgroundColor: "#c5221f", tension: 0.2,
-            pointRadius: trendMeaslesLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendMeaslesLabels },
-          { label: "Rubella confirmed", data: trendRubella, borderColor: "#b06a00", backgroundColor: "#b06a00", tension: 0.2,
-            pointRadius: trendRubellaLabels.map(function (l) { return l ? 4 : 0; }), labelText: trendRubellaLabels },
+          { label: "Measles (confirmed)", data: trendMeasles, backgroundColor: "#c5221f",
+            labelText: trendMeasles.map(function (v) { return fmtNum(v); }) },
+          { label: "Rubella (confirmed)", data: trendRubella, backgroundColor: "#b06a00",
+            labelText: trendRubella.map(function (v) { return fmtNum(v); }) },
+          { label: "Discarded", data: trendDiscarded, backgroundColor: "#1a5fb4",
+            labelText: trendDiscarded.map(function (v) { return fmtNum(v); }) },
         ]
       },
-      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { position: "bottom" } } }
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+        plugins: { legend: { position: "bottom" } },
+        scales: { y: { grace: "15%" }, x: { ticks: { autoSkip: false, font: { size: 10 } } } },
+      }
     });
 
     var ageOrder = ["0-8m", "9-23m", "24-59m", "60m+"];
@@ -1362,30 +1456,20 @@
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, scales: { y: { grace: "15%" } } }
     });
 
-    var classKeys = Object.keys(msl.classification_breakdown).sort(function (a, b) {
-      return msl.classification_breakdown[b] - msl.classification_breakdown[a];
-    });
+    var classDoughnut = doughnutData(msl.classification_breakdown);
     charts.mslClassification = new Chart(document.getElementById("chart-msl-classification"), {
-      type: "bar",
-      data: {
-        labels: classKeys,
-        datasets: [{ label: "Cases", data: classKeys.map(function (k) { return msl.classification_breakdown[k]; }),
-          backgroundColor: "#1a5fb4", labelText: classKeys.map(function (k) { return fmtNum(msl.classification_breakdown[k]); }) }]
-      },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { x: { grace: "15%" } } }
+      type: "doughnut",
+      data: { labels: classDoughnut.labels, datasets: [{ data: classDoughnut.values, backgroundColor: classDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true,
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } } }
     });
 
-    var outcomeKeys = Object.keys(msl.outcome_breakdown).sort(function (a, b) { return msl.outcome_breakdown[b] - msl.outcome_breakdown[a]; });
+    var outcomeDoughnut = doughnutData(msl.outcome_breakdown);
     charts.mslOutcome = new Chart(document.getElementById("chart-msl-outcome"), {
-      type: "bar",
-      data: {
-        labels: outcomeKeys,
-        datasets: [{ label: "Cases", data: outcomeKeys.map(function (k) { return msl.outcome_breakdown[k]; }),
-          backgroundColor: "#7d3c98", labelText: outcomeKeys.map(function (k) { return fmtNum(msl.outcome_breakdown[k]); }) }]
-      },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { x: { grace: "15%" } } }
+      type: "doughnut",
+      data: { labels: outcomeDoughnut.labels, datasets: [{ data: outcomeDoughnut.values, backgroundColor: outcomeDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true,
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } } }
     });
 
     var compKeys = Object.keys(msl.complications_breakdown);

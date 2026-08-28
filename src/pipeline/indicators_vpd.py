@@ -127,14 +127,20 @@ def pertussis_district_counts(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def msl_weekly_trend(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-epi-week suspected / measles-confirmed / rubella-confirmed counts,
-    sorted by week. The single source for the dashboard's Surveillance trend
-    chart AND the bulletin's district-wise/weekly charts -- computed once
-    here, never re-aggregated independently in template code."""
+    """Per-epi-week suspected / measles-confirmed / rubella-confirmed /
+    discarded counts, sorted by week. The single source for the dashboard's
+    Surveillance trend chart AND the bulletin's district-wise/weekly charts
+    -- computed once here, never re-aggregated independently in template
+    code. measles_confirmed/rubella_confirmed reuse the same
+    is_confirmed_measles/is_confirmed_rubella flags used everywhere else in
+    this module (clean_vpd.clean_msl); discarded = final_classification ==
+    'Discarded' (case-normalized, see clean_vpd.py)."""
+    df = df.assign(is_discarded=df["final_classification"] == "Discarded")
     g = df.groupby("epi_week").agg(
         suspected=("epid_number", "count"),
         measles_confirmed=("is_confirmed_measles", "sum"),
         rubella_confirmed=("is_confirmed_rubella", "sum"),
+        discarded=("is_discarded", "sum"),
     ).reset_index().sort_values("epi_week")
     return g
 

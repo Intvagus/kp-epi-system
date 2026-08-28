@@ -115,6 +115,13 @@ def test_msl_weekly_trend_sums_to_ytd_total(msl):
     assert list(trend["epi_week"]) == sorted(trend["epi_week"])
 
 
+def test_msl_weekly_trend_discarded_matches_raw_classification_count(msl):
+    trend = ind.msl_weekly_trend(msl)
+    assert trend["discarded"].sum() == int((msl["final_classification"] == "Discarded").sum())
+    assert trend["measles_confirmed"].sum() == int(msl["is_confirmed_measles"].sum())
+    assert trend["rubella_confirmed"].sum() == int(msl["is_confirmed_rubella"].sum())
+
+
 def test_diphtheria_weekly_trend_sums_to_ytd_total(diphtheria):
     trend = ind.weekly_case_counts(diphtheria)
     assert trend["case_count"].sum() == 167
