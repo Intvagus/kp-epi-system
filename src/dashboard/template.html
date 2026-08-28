@@ -204,6 +204,10 @@
     font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
     color: var(--text-dim); white-space: nowrap;
   }
+  .tab-summaries-heading {
+    margin: 28px 0 12px 0; padding-bottom: 8px; border-bottom: 3px solid var(--navy);
+    font-size: 19px;
+  }
   footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-dim); }
   button.export-btn {
     background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35);
@@ -369,7 +373,9 @@
     var prov = provinceRow();
     if (!prov) {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
-        'No Service Delivery data uploaded yet. See the Service Delivery tab, or the VPD Surveillance/Monitoring and Supervision tabs if that\'s what was uploaded.</div></div>';
+        'No Service Delivery data uploaded yet. See the Service Delivery tab, or the VPD Surveillance/Monitoring and Supervision tabs if that\'s what was uploaded.</div></div>' +
+        '<h3 class="tab-summaries-heading">Other Tabs at a Glance</h3><div id="overview-tab-summaries" class="grid two-col"></div>';
+      renderOtherTabSummaries();
       return;
     }
 
@@ -394,7 +400,8 @@
         '<div class="card"><h2>Antigen Cascade (Province-wide)</h2><div class="chart-wrap"><canvas id="chart-cascade"></canvas></div></div>' +
         '<div class="card"><h2>UC Category Breakdown</h2><div class="chart-wrap"><canvas id="chart-category"></canvas></div></div>' +
       '</div>' +
-      '<div class="card"><h2>Districts Ranked by FIC Coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>';
+      '<div class="card"><h2>Districts Ranked by FIC Coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>' +
+      '<h3 class="tab-summaries-heading">Other Tabs at a Glance</h3><div id="overview-tab-summaries" class="grid two-col"></div>';
 
     destroyChart("cascade"); destroyChart("category"); destroyChart("ficRank");
 
@@ -440,6 +447,67 @@
       options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } }, scales: { x: { max: 110 } } }
     });
+
+    renderOtherTabSummaries();
+  }
+
+  // ---- Overview tab: one concise summary card per other tab, built from
+  // the exact same computed data those tabs show -- never a separate
+  // calculation, just a shorter read of it. Each shares its insight-box ID
+  // with the source tab's own overview insight, so editing either updates
+  // the same saved note. ----
+  function renderOtherTabSummaries() {
+    var el = document.getElementById("overview-tab-summaries");
+    if (!el) return;
+    var cards = [];
+
+    var summary = DATA.coverage_summary;
+    if (summary.status === "ok") {
+      var kind = ["monthly", "cumulative"].filter(function (k) {
+        return summary.periods[k] && summary.periods[k].status === "ok";
+      })[0];
+      if (kind) {
+        var cs = summary.periods[kind];
+        cards.push('<div class="card"><h2>📋 Service Delivery Summary</h2>' +
+          editableInsight("exec-" + kind, cs.executive.insight) + '</div>');
+      }
+    }
+
+    var v = DATA.vpd;
+    if (v.status !== "awaiting_data") {
+      var msl = v.msl;
+      var classKeys = Object.keys(msl.classification_breakdown).sort(function (a, b) { return msl.classification_breakdown[b] - msl.classification_breakdown[a]; });
+      var topClass2 = classKeys[0];
+      var classTotal2 = classKeys.reduce(function (s, k) { return s + msl.classification_breakdown[k]; }, 0);
+      var vpdSummary = nounFor(msl.suspected_ytd, "suspected measles/rubella case") + " reported year-to-date through week " + v.latest_epi_week +
+        " (" + nounFor(msl.suspected_latest_week, "case") + " in the latest week). " +
+        (topClass2 ? "Most common final classification: " + topClass2 + " (" + (classTotal2 ? (msl.classification_breakdown[topClass2] / classTotal2 * 100).toFixed(1) : "0.0") + "%). " : "") +
+        "Also reported YTD: " + nounFor(v.diphtheria.ytd.case_count, "diphtheria case") + " and " + nounFor(v.nnt.ytd.case_count, "neonatal tetanus case") + ".";
+      cards.push('<div class="card"><h2>🦠 VPD Surveillance Summary</h2>' +
+        editableInsight("vpd-tab-overview-" + v.latest_epi_week, vpdSummary) + '</div>');
+    }
+
+    var m = DATA.monitoring;
+    if (m.rca.status === "ok") {
+      var rov = m.rca.overview, rzd = m.rca.zero_dose;
+      var rcaSummary = nounFor(rov.total_children_assessed, "child", "children") + " assessed across " + nounFor(rov.total_rca_visits, "RCA visit") +
+        " in " + nounFor(rov.districts_covered, "district") + ". " + nounFor(rzd.zero_dose_count, "zero-dose child", "zero-dose children") +
+        " identified (" + fmtPct(rzd.zero_dose_pct) + " of " + fmtNum(rzd.assessed_count) + " assessed for Penta1).";
+      cards.push('<div class="card"><h2>🔍 RCA Summary</h2>' +
+        editableInsight("monitoring-rca-summary-" + (m.rca.reporting_window || ""), rcaSummary) + '</div>');
+    }
+    if (m.supervisory.status === "ok") {
+      var sov = m.supervisory.overview;
+      var worstScore2 = m.supervisory.composite_scores.reduce(function (w, s) { return (s.avg_pct !== null && (!w || s.avg_pct < w.avg_pct)) ? s : w; }, null);
+      var supSummary = nounFor(sov.total_visits, "supervisory visit") + " to " + nounFor(sov.facilities_covered, "facility", "facilities") +
+        " in " + nounFor(sov.districts_covered, "district") + "." +
+        (worstScore2 ? " Lowest-scoring category: " + worstScore2.category + " (" + fmtPct(worstScore2.avg_pct) + " average)." : "");
+      cards.push('<div class="card"><h2>✅ Supervisory Checklist Summary</h2>' +
+        editableInsight("monitoring-supervisory-summary-" + (m.supervisory.reporting_window || ""), supSummary) + '</div>');
+    }
+
+    el.innerHTML = cards.length ? cards.join("") : '<div class="card"><p class="sub">No VPD Surveillance or Monitoring and Supervision data uploaded yet -- their summaries will appear here once available.</p></div>';
+    wireEditableInsights(el);
   }
 
   // ================= COVERAGE =================
