@@ -137,10 +137,17 @@
   .map-wrap { position: relative; }
   .map-wrap svg { width: 100%; height: auto; display: block; }
   .map-wrap.single-map { max-width: 520px; margin: 0 auto; }
+  .map-wrap.single-map.large { max-width: 760px; }
   .map-wrap path.district-shape {
     stroke: #fff; stroke-width: 1; cursor: pointer; transition: opacity .1s;
   }
   .map-wrap path.district-shape:hover { opacity: 0.75; stroke: var(--navy-dark); stroke-width: 1.5; }
+  .map-wrap text.district-label, .map-wrap text.district-label-halo {
+    font-size: 9px; font-weight: 700; text-anchor: middle; pointer-events: none;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  .map-wrap text.district-label-halo { fill: none; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; opacity: 0.9; }
+  .map-wrap text.district-label { fill: #1b1f27; }
   .map-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
   .map-legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
   .map-tooltip {
@@ -679,7 +686,41 @@
       }
       return "";
     }
-    return { width: W, height: H, geometryPath: geometryPath };
+    // Signed-area (shoelace) centroid of one ring, already in projected
+    // (SVG) coordinates -- used to place a permanent "District: N" label
+    // roughly in the middle of each shape. Falls back to a plain point
+    // average for a degenerate (near-zero-area) ring.
+    function ringCentroid(projPts) {
+      var area = 0, cx = 0, cy = 0;
+      for (var i = 0; i < projPts.length - 1; i++) {
+        var x0 = projPts[i][0], y0 = projPts[i][1], x1 = projPts[i + 1][0], y1 = projPts[i + 1][1];
+        var cross = x0 * y1 - x1 * y0;
+        area += cross; cx += (x0 + x1) * cross; cy += (y0 + y1) * cross;
+      }
+      area *= 0.5;
+      if (Math.abs(area) < 1e-6) {
+        var sx = 0, sy = 0;
+        projPts.forEach(function (p) { sx += p[0]; sy += p[1]; });
+        return [sx / projPts.length, sy / projPts.length, 0];
+      }
+      return [cx / (6 * area), cy / (6 * area), Math.abs(area)];
+    }
+    // For a MultiPolygon (a boundary made of several separate landmasses,
+    // e.g. combined sub-split districts), label the largest piece by area
+    // rather than averaging every piece's centroid together -- averaging
+    // can land the label in the gap between two shapes instead of on either.
+    function geometryCentroid(geom) {
+      var rings = geom.type === "Polygon" ? [geom.coordinates[0]]
+        : geom.type === "MultiPolygon" ? geom.coordinates.map(function (poly) { return poly[0]; }) : [];
+      var best = null;
+      rings.forEach(function (ring) {
+        var projPts = ring.map(function (pt) { return project(pt[0], pt[1]); });
+        var c = ringCentroid(projPts);
+        if (!best || c[2] > best[2]) best = c;
+      });
+      return best ? [best[0], best[1]] : [W / 2, H / 2];
+    }
+    return { width: W, height: H, geometryPath: geometryPath, centroid: geometryCentroid };
   })();
 
   // One compact map per antigen, so a decision-maker can compare districts
@@ -769,17 +810,20 @@
   function singleDistrictMapHtml(svgId, tooltipId, title, note) {
     return '<h3>' + title + '</h3>' +
       (note ? '<p class="sub">' + note + '</p>' : '') +
-      '<div class="map-wrap single-map"><svg id="' + svgId + '" viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '"></svg></div>' +
+      '<div class="map-wrap single-map large"><svg id="' + svgId + '" viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '"></svg></div>' +
       '<div class="map-legend">' +
         '<span><span class="swatch" style="background:#0f766e;"></span>High</span>' +
         '<span><span class="swatch" style="background:#5ba58f;"></span>Medium</span>' +
         '<span><span class="swatch" style="background:#a8d5c7;"></span>Low</span>' +
-        '<span><span class="swatch" style="background:#d0d5dd;"></span>No data</span>' +
       '</div>' +
       '<div class="map-tooltip" id="' + tooltipId + '"></div>';
   }
 
-  function renderSingleDistrictMap(svgId, tooltipId, districtMap, valueFn, detailFn) {
+  // labelFn(entry) returns the short "District: N" text baked permanently
+  // onto the shape (not just on hover) -- required so the map reads
+  // correctly in a static screenshot or printed PDF, same principle as
+  // every chart's on-chart value labels elsewhere in this dashboard.
+  function renderSingleDistrictMap(svgId, tooltipId, districtMap, valueFn, detailFn, labelFn) {
     var svg = document.getElementById(svgId);
     if (!svg || !districtMap) return;
     var features = districtMap.features || {};
@@ -788,7 +832,8 @@
       var v = valueFn(features[name]);
       if (v !== null && v !== undefined && v > maxValue) maxValue = v;
     });
-    svg.innerHTML = KP_GEO.features.map(function (f) {
+    var shapes = "", labels = "";
+    KP_GEO.features.forEach(function (f) {
       var name = f.properties.shapeName;
       var entry = features[name];
       var d = MAP_PROJECTION.geometryPath(f.geometry);
@@ -796,8 +841,15 @@
       var fill = activityColor(value, maxValue);
       var label = entry ? entry.component_districts.join(" + ") : name;
       var detail = entry ? detailFn(label, entry) : (label + "<br>No data");
-      return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
-    }).join("");
+      shapes += '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
+      if (entry) {
+        var c = MAP_PROJECTION.centroid(f.geometry);
+        var text = labelFn(name, entry);
+        labels += '<text class="district-label-halo" x="' + c[0].toFixed(1) + '" y="' + c[1].toFixed(1) + '">' + escHtml(text) + '</text>' +
+          '<text class="district-label" x="' + c[0].toFixed(1) + '" y="' + c[1].toFixed(1) + '">' + escHtml(text) + '</text>';
+      }
+    });
+    svg.innerHTML = shapes + labels;
 
     var tooltip = document.getElementById(tooltipId);
     svg.querySelectorAll("path.district-shape").forEach(function (path) {
@@ -1844,7 +1896,8 @@
           function (label, entry) {
             return label + "<br>Children assessed: " + fmtNum(entry.children_assessed) + "<br>RCA visits: " + fmtNum(entry.rca_visits) +
               "<br>Zero-dose: " + fmtNum(entry.zero_dose_count) + " (" + fmtPct(entry.zero_dose_pct) + ")";
-          });
+          },
+          function (name, entry) { return name + ": " + fmtNum(entry.children_assessed); });
       }
 
       charts.rcaAntigen = new Chart(document.getElementById("chart-rca-antigen"), {
@@ -2106,7 +2159,8 @@
           function (label, entry) {
             return label + "<br>Supervisory visits: " + fmtNum(entry.visits) + "<br>Facilities: " + fmtNum(entry.facilities) +
               "<br>Operations Quality: " + ratePct(entry.score_operations_quality);
-          });
+          },
+          function (name, entry) { return name + ": " + fmtNum(entry.visits); });
       }
 
       charts.supCompliance = new Chart(document.getElementById("chart-sup-compliance"), {

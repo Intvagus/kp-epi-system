@@ -101,18 +101,22 @@ def rca_district_map(df: pd.DataFrame) -> dict:
     boundary polygon, combined here by summing raw counts, never averaging
     percentages, same rule as every other aggregate in this pipeline. Any
     RCA district name not found in that mapping is reported as unmapped
-    (flagged, not guessed at) rather than silently dropped from the map."""
+    (flagged, not guessed at) rather than silently dropped from the map.
+
+    Every boundary gets an entry, including a real 0 for a district with no
+    matching rows -- that 0 is a true count of what's in the uploaded data
+    (not a claim that zero RCA activity actually happened there), which is
+    what lets the map show every district's number instead of just the ones
+    that happened to appear in this particular upload."""
     unmapped = sorted(set(df["district"].unique()) - set(DISTRICT_TO_BOUNDARY))
     by_boundary = {}
     for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
         component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
         rows = df[df["district"].isin(component_districts)]
-        if rows.empty:
-            continue
         assessed = rows[rows["is_penta1_assessed"]]
         zero_dose = int(assessed["is_zero_dose"].sum())
         by_boundary[boundary_name] = {
-            "component_districts": sorted(rows["district"].unique().tolist()),
+            "component_districts": sorted(rows["district"].unique().tolist()) or component_districts,
             "children_assessed": int(len(rows)),
             "rca_visits": int(rows["record_id"].nunique()),
             "zero_dose_count": zero_dose,
@@ -361,17 +365,19 @@ def supervisory_district_breakdown(df: pd.DataFrame) -> list[dict]:
 def supervisory_district_map(df: pd.DataFrame) -> dict:
     """Per-boundary-polygon Supervisory Checklist activity for the district
     choropleth map -- same DISTRICT_TO_BOUNDARY combining/summing rule as
-    rca_district_map. Composite scores are averaged (they're already
-    percentages, not raw counts, so there's nothing to sum)."""
+    rca_district_map, including a real 0 for every district with no
+    matching visits (see rca_district_map's docstring for what that 0 does
+    and doesn't claim). Composite scores are averaged (they're already
+    percentages, not raw counts, so there's nothing to sum) and are None
+    (not 0) for a district with no visits -- 0% would falsely claim a
+    measured failing score."""
     unmapped = sorted(set(df["district"].unique()) - set(DISTRICT_TO_BOUNDARY))
     by_boundary = {}
     for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
         component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
         rows = df[df["district"].isin(component_districts)]
-        if rows.empty:
-            continue
         entry = {
-            "component_districts": sorted(rows["district"].unique().tolist()),
+            "component_districts": sorted(rows["district"].unique().tolist()) or component_districts,
             "visits": int(len(rows)),
             "facilities": int(rows["health_facility"].nunique(dropna=True)),
         }

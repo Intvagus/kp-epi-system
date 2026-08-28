@@ -65,6 +65,16 @@ def test_rca_district_map_has_no_unmapped_districts(rca):
     assert dmap["features"]["Abbottabad"]["rca_visits"] == 34
 
 
+def test_rca_district_map_includes_every_boundary_with_a_real_zero(rca):
+    from src.pipeline.config import DISTRICT_TO_BOUNDARY
+    dmap = ind.rca_district_map(rca)
+    assert set(dmap["features"]) == set(DISTRICT_TO_BOUNDARY.values())
+    swat = dmap["features"]["Swat"]
+    assert swat["children_assessed"] == 0
+    assert swat["zero_dose_count"] == 0
+    assert swat["zero_dose_pct"] is None
+
+
 def test_rca_district_breakdown_covers_all_districts_present(rca):
     rows = ind.rca_district_breakdown(rca)
     assert sum(r["children_assessed"] for r in rows) == len(rca)
@@ -139,3 +149,12 @@ def test_supervisory_district_map_has_no_unmapped_districts(sup):
     assert dmap["unmapped_districts"] == []
     assert dmap["features"]["Abbottabad"]["visits"] == 63
     assert dmap["features"]["Abbottabad"]["facilities"] == 60
+
+
+def test_supervisory_district_map_includes_every_boundary_with_a_real_zero(sup):
+    from src.pipeline.config import DISTRICT_TO_BOUNDARY
+    dmap = ind.supervisory_district_map(sup)
+    assert set(dmap["features"]) == set(DISTRICT_TO_BOUNDARY.values())
+    swat = dmap["features"]["Swat"]
+    assert swat["visits"] == 0
+    assert swat["score_operations_quality"] is None
