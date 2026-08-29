@@ -148,6 +148,12 @@
   }
   .map-wrap text.district-label-halo { fill: none; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; opacity: 0.9; }
   .map-wrap text.district-label { fill: #1b1f27; }
+  /* Mini-map grid (9 antigen tiles) renders the same 640x520 viewBox at a
+     much smaller on-screen size than the single large maps -- SVG font-size
+     is in viewBox units, so the labels need to be proportionally larger
+     here to stay legible once scaled down, not the same absolute size. */
+  .map-wrap text.district-label-halo.mini { stroke-width: 5px; }
+  .map-wrap text.district-label.mini, .map-wrap text.district-label-halo.mini { font-size: 21px; }
   .map-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
   .map-legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
   .map-tooltip {
@@ -156,7 +162,7 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
   .mini-map-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 10px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 10px;
   }
   .mini-map-card {
     border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: #fff;
@@ -835,7 +841,8 @@
     var features = cs.district_map.features;
 
     grid.innerHTML = antigens.map(function (antigen) {
-      var paths = KP_GEO.features.map(function (f) {
+      var paths = "", labels = "";
+      KP_GEO.features.forEach(function (f) {
         var name = f.properties.shapeName;
         var entry = features[name];
         var d = MAP_PROJECTION.geometryPath(f.geometry);
@@ -851,10 +858,24 @@
           ? label + "<br>" + antigen + ": " + stat.pct.toFixed(1) + "% (target " + CFG.coverage_good + "%)<br>" +
             stat.vaccinated.toLocaleString() + " of " + stat.target.toLocaleString() + " vaccinated &mdash; " + status
           : label + "<br>" + antigen + ": No data";
-        return '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
-      }).join("");
+        paths += '<path class="district-shape" d="' + d + '" fill="' + fill + '" data-detail="' + detail.replace(/"/g, "&quot;") + '"></path>';
+        // Permanent on-shape % label (not just hover) -- needed so the PDF
+        // export (a static screenshot, see build.py/template.html print
+        // styles) still shows real values, same principle as every chart's
+        // on-chart labels elsewhere in this dashboard. Percentage only, no
+        // district name, to stay legible at this many-districts-per-tile
+        // scale -- full names are one hover (on screen) or one lookup (in
+        // the Antigen-wise Coverage Analysis chart / District Explorer
+        // table above) away.
+        if (stat && stat.pct !== null) {
+          var c = MAP_PROJECTION.centroid(f.geometry);
+          var pctText = Math.round(stat.pct) + "%";
+          labels += '<text class="district-label-halo mini" x="' + c[0].toFixed(1) + '" y="' + c[1].toFixed(1) + '">' + pctText + '</text>' +
+            '<text class="district-label mini" x="' + c[0].toFixed(1) + '" y="' + c[1].toFixed(1) + '">' + pctText + '</text>';
+        }
+      });
       return '<div class="mini-map-card"><h4>' + antigen + '</h4>' +
-        '<div class="map-wrap"><svg viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '">' + paths + '</svg></div></div>';
+        '<div class="map-wrap"><svg viewBox="0 0 ' + MAP_PROJECTION.width + ' ' + MAP_PROJECTION.height + '">' + paths + labels + '</svg></div></div>';
     }).join("");
 
     var tooltip = document.getElementById("map-tooltip-" + kind);
@@ -1490,11 +1511,10 @@
     var doseEligTotal = Object.keys(doseElig).reduce(function (s, k) { return s + doseElig[k]; }, 0);
     var pctUnvaxOrPartial = doseEligTotal ? (((doseElig["Zero dose"] || 0) + (doseElig["1 dose"] || 0)) / doseEligTotal * 100) : null;
 
-    // ---- Anomaly box: under-eligible-age cases with a dose recorded ----
+    // Under-eligible-age cases with a dose recorded -- count still feeds the
+    // priority alert pill, error list, and auto-insights below (the
+    // per-district anomaly table itself was removed from this tab).
     var anomaly = dq.under_age_vaccinated_anomaly;
-    var anomalyRows = anomaly.by_district.map(function (r) {
-      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>";
-    }).join("");
 
     // ---- Priority alert pills ----
     var alertPills = [
@@ -1672,11 +1692,6 @@
             '<div class="chart-wrap"><canvas id="chart-msl-age"></canvas></div></div>' +
           '<div><h3>Sex distribution</h3><div class="chart-wrap"><canvas id="chart-msl-sex"></canvas></div></div>' +
         '</div>' +
-        (anomaly.anomaly_count > 0 ?
-          '<div class="anomaly-box"><h3>⚠ Anomaly: under-9-month cases with a vaccine dose recorded</h3>' +
-          '<p>' + anomaly.anomaly_count + ' of ' + anomaly.under_age_case_count + ' suspected cases under 9 months old (not yet MCV1-eligible) have a dose count &gt; 0 -- ' +
-          'a likely age or dose data-entry error, flagged here for field verification rather than corrected silently.</p>' +
-          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Case count</th></tr></thead><tbody>' + anomalyRows + '</tbody></table></div></div>' : '') +
         '<h3 style="margin-top:12px;">MCV dose status ' + (pctUnvaxOrPartial !== null ? '<span class="callout-inline">(' + fmtPct(pctUnvaxOrPartial) + ' unvaccinated or partial among eligible)</span>' : '') + '</h3>' +
         '<div class="chart-wrap"><canvas id="chart-msl-dose"></canvas></div>' +
       '</div>' +
