@@ -13,6 +13,7 @@ from webapp.app import app as flask_app
 RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 DEC_FILE = RAW_DIR / "Dec 2025 Coverage Analysis (0-11).xlsx"
 VPD_FILE = RAW_DIR / "KP VPDs Line List Week 1-32,2026.xlsx"
+WHO_FILE = RAW_DIR / "WHO_EPI_May_2024_Highlights_Dashboard.xlsx"
 
 pytestmark = pytest.mark.skipif(
     not (DEC_FILE.exists() and VPD_FILE.exists()),
@@ -56,6 +57,13 @@ def test_both_files_uploaded_in_either_slot_still_work(client):
     assert resp.status_code == 200
     assert b"Open dashboard.html" in resp.data
     assert b"Bulletin PDF" in resp.data
+
+
+def test_who_activities_only_upload_builds_a_dashboard(client):
+    resp = _upload(client, WHO_FILE)
+    assert resp.status_code == 200
+    assert b"Open dashboard.html" in resp.data
+    assert b"Bulletin PDF" not in resp.data  # VPD-only artifact, correctly absent
 
 
 def test_unrecognized_file_does_not_block_the_recognized_one(client, tmp_path):

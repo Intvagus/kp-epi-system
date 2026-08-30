@@ -176,6 +176,16 @@ def build_payload(processed_dir: Path) -> dict:
             )},
         }
 
+    who_activities_path = processed_dir / "who_activities_summary.json"
+    if who_activities_path.exists():
+        with open(who_activities_path, encoding="utf-8") as f:
+            who_activities = json.load(f)
+    else:
+        who_activities = {
+            "status": "awaiting_data",
+            "message": "No WHO Supported Activities workbook has been uploaded yet.",
+        }
+
     return {
         "config": {
             "coverage_good": COVERAGE_GOOD,
@@ -202,6 +212,7 @@ def build_payload(processed_dir: Path) -> dict:
         "vpd": vpd,
         "vpd_key_indicators": vpd_key_indicators,
         "monitoring": monitoring,
+        "who_activities": who_activities,
     }
 
 
@@ -219,11 +230,12 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     has_vpd = (processed_dir / "vpd_summary.json").exists()
     has_monitoring = (processed_dir / "monitoring_summary.json").exists()
     has_indicator_sheet = (processed_dir / "vpd_indicator_summary.json").exists()
-    if not has_coverage and not has_vpd and not has_monitoring and not has_indicator_sheet:
+    has_who_activities = (processed_dir / "who_activities_summary.json").exists()
+    if not has_coverage and not has_vpd and not has_monitoring and not has_indicator_sheet and not has_who_activities:
         raise SystemExit(
             f"No processed data found in {processed_dir}. Run the coverage, VPD, monitoring, "
-            f"and/or indicator-sheet pipeline first to generate at least one dataset before "
-            f"building the dashboard."
+            f"indicator-sheet, and/or WHO Supported Activities pipeline first to generate at "
+            f"least one dataset before building the dashboard."
         )
 
     payload = build_payload(processed_dir)

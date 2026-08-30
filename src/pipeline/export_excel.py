@@ -103,6 +103,83 @@ def _vpd_district_rows(vpd: dict) -> list[dict]:
     return rows
 
 
+def _who_activities_summary(processed_dir: Path) -> dict | None:
+    path = processed_dir / "who_activities_summary.json"
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as f:
+        summary = json.load(f)
+    return summary if summary.get("status") == "ok" else None
+
+
+def _who_summary_rows(w: dict) -> list[dict]:
+    k = w["kpis"]
+    return [
+        {"metric": "Reporting period", "value": w["reporting_period_label"]},
+        {"metric": "Duty station", "value": w["duty_station"]},
+        {"metric": "Field-support days/visits", "value": k["field_support_days"]},
+        {"metric": "Zero-dose children vaccinated (Arandu)", "value": k["zero_dose_vaccinated_arandu"]},
+        {"metric": "Measles case results reviewed", "value": k["measles_results_reviewed"]},
+        {"metric": "Measles case results total (per source)", "value": k["measles_results_total"]},
+        {"metric": "Measles case-result review %", "value": k["measles_review_pct"]},
+        {"metric": "MOBR-affected districts supported", "value": k["mobr_districts_supported"]},
+        {"metric": "Districts covered", "value": k["districts_covered"]},
+        {"metric": "Evidence & Findings records", "value": k["evidence_record_count"]},
+    ]
+
+
+def _who_evidence_rows(w: dict) -> list[dict]:
+    cols = ["id", "district_canonical", "date_period_raw", "date_start", "date_end", "activity_theme",
+            "activity", "quantified_result", "who_contribution", "suggested_highlight", "evidence_source"]
+    rename = {
+        "id": "ID", "district_canonical": "District", "date_period_raw": "Date / Period (source)",
+        "date_start": "Date (parsed start)", "date_end": "Date (parsed end)", "activity_theme": "Activity Theme",
+        "activity": "Activity / Finding", "quantified_result": "Quantified Result",
+        "who_contribution": "WHO Contribution / Action", "suggested_highlight": "Suggested Highlight",
+        "evidence_source": "Evidence Source",
+    }
+    return [{rename[c]: r.get(c) for c in cols} for r in w["evidence_records"]]
+
+
+def _who_district_rows(w: dict) -> list[dict]:
+    features = w["district_map"]["features"]
+    return sorted(
+        ({"district": d, "evidence_count": v["evidence_count"]} for d, v in features.items()),
+        key=lambda r: -r["evidence_count"],
+    )
+
+
+def _who_theme_rows(w: dict) -> list[dict]:
+    total = sum(w["activity_theme_breakdown"].values())
+    return [
+        {"activity_theme": t, "evidence_count": n, "pct_of_records": round(n / total * 100, 1) if total else None}
+        for t, n in sorted(w["activity_theme_breakdown"].items(), key=lambda kv: -kv[1])
+    ]
+
+
+def _who_data_quality_rows(w: dict) -> list[dict]:
+    dq = w["data_quality"]
+    rows = [
+        {"check": "Evidence & Findings record count", "result": dq["evidence_record_count"]},
+        {"check": "Duplicate evidence IDs", "result": dq["duplicate_evidence_ids"]},
+        {"check": "Unmapped district names", "result": ", ".join(dq["unmapped_districts"]) or "None"},
+        {"check": "District name variants standardized", "result": "; ".join(
+            f"{k} -> {v}" for k, v in dq["district_name_variants_standardized"].items()) or "None"},
+        {"check": "Districts with narrative highlight but no evidence row", "result": ", ".join(
+            dq["districts_with_narrative_highlight_but_no_evidence_row"]) or "None"},
+        {"check": "Districts with evidence row but no narrative highlight", "result": ", ".join(
+            dq["districts_with_evidence_row_but_no_narrative_highlight"]) or "None"},
+    ]
+    for col, n in dq["missing_values_by_column"].items():
+        rows.append({"check": f"Missing values -- {col}", "result": n})
+    for c in dq["headline_kpis_reconciled_against_summary_table_and_raw_narrative"]:
+        rows.append({
+            "check": f"Reconciled: {c['metric']}",
+            "result": f"{c['headline_value']} (found in raw narrative report: {c['found_in_raw_narrative']})",
+        })
+    return rows
+
+
 def _monitoring_summary(processed_dir: Path) -> dict | None:
     path = processed_dir / "monitoring_summary.json"
     if not path.exists():
@@ -181,6 +258,17 @@ def build_processed_excel(processed_dir: Path, output_path: Path) -> Path | None
             if sup["district_breakdown"]:
                 sheets["Supervisory District Breakdown"] = pd.DataFrame(sup["district_breakdown"])
 
+    who = _who_activities_summary(processed_dir)
+    who_sheet_names = set()
+    if who:
+        sheets["WHO Activities Summary"] = pd.DataFrame(_who_summary_rows(who))
+        sheets["WHO Evidence Data"] = pd.DataFrame(_who_evidence_rows(who))
+        sheets["WHO District Summary"] = pd.DataFrame(_who_district_rows(who))
+        sheets["WHO Activity Theme Summary"] = pd.DataFrame(_who_theme_rows(who))
+        sheets["WHO Data Quality"] = pd.DataFrame(_who_data_quality_rows(who))
+        who_sheet_names = {"WHO Activities Summary", "WHO Evidence Data", "WHO District Summary",
+                            "WHO Activity Theme Summary", "WHO Data Quality"}
+
     if not sheets:
         return None
 
@@ -188,4 +276,34 @@ def build_processed_excel(processed_dir: Path, output_path: Path) -> Path | None
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for name, df in sheets.items():
             df.to_excel(writer, sheet_name=name[:31], index=False)  # Excel's 31-char sheet-name limit
+            if name in who_sheet_names:
+                _format_who_sheet(writer.sheets[name[:31]], df)
     return output_path
+
+
+def _format_who_sheet(ws, df: pd.DataFrame) -> None:
+    """Professional formatting for the WHO Supported Activities sheets:
+    bold header row, frozen header + (for the row-per-record sheets) frozen
+    ID/District columns, a header-row filter, and column widths sized to
+    content rather than Excel's default. Scoped to just these sheets since
+    that's what this export was asked to be "professionally structured" --
+    not a general reformat of every sheet this exporter already writes."""
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1A3A7A", end_color="1A3A7A", fill_type="solid")  # dashboard's navy
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    for i, col in enumerate(df.columns, start=1):
+        sample_lengths = [len(str(col))] + [len(str(v)) for v in df[col].astype(str).head(200)]
+        width = min(max(sample_lengths) + 2, 60)
+        ws.column_dimensions[get_column_letter(i)].width = width
+        if "pct" in col.lower() or "%" in col:
+            for row in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row, column=i)
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = "0.0"

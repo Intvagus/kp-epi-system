@@ -181,6 +181,19 @@
   }
   .anomaly-box h3 { margin: 0 0 4px 0; color: var(--poor); font-size: 13px; }
   .anomaly-box p { margin: 0 0 8px 0; font-size: 12px; color: var(--text-dim); }
+  button.reset-btn {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px;
+    background: #f4f6fb; color: var(--navy); cursor: pointer; margin-bottom: 10px;
+  }
+  button.reset-btn:hover { background: #e8ecf7; }
+  ul.plain-list { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.65; }
+  ul.plain-list li { margin-bottom: 4px; }
+  .district-highlight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .district-highlight-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: #fafbfe;
+  }
+  .district-highlight-card h4 { margin: 0 0 4px 0; font-size: 13px; color: var(--navy); }
+  .district-highlight-card p { margin: 0; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
   .completeness-list { display: flex; flex-direction: column; gap: 6px; }
   .completeness-row { display: grid; grid-template-columns: 190px 1fr 46px; align-items: center; gap: 8px; font-size: 12px; }
   .completeness-label { color: var(--text-dim); }
@@ -223,7 +236,7 @@
      prints uselessly), but what they were SET TO must stay visible as plain
      text, or the PDF wouldn't say which period/tab it is. */
   @media print {
-    nav.tabs, .controls-row select, button.export-btn, .insight-box[contenteditable]::before,
+    nav.tabs, .controls-row select, button.export-btn, button.reset-btn, .insight-box[contenteditable]::before,
     .pagination, input.search-box, th.sorted-asc::after, th.sorted-desc::after { display: none !important; }
     .period-pill:not(.active) { display: none !important; }
     .period-pill.active {
@@ -258,6 +271,7 @@
   <button data-tab="coverage">Service Delivery</button>
   <button data-tab="surveillance">VPD Surveillance</button>
   <button data-tab="supervision">Monitoring and Supervision</button>
+  <button data-tab="who">WHO Supported Activities</button>
   <button data-tab="quality">Data Quality</button>
 </nav>
 
@@ -266,6 +280,7 @@
   <section id="tab-coverage" class="tab-panel"></section>
   <section id="tab-surveillance" class="tab-panel"></section>
   <section id="tab-supervision" class="tab-panel"></section>
+  <section id="tab-who" class="tab-panel"></section>
   <section id="tab-quality" class="tab-panel"></section>
 </main>
 
@@ -345,6 +360,7 @@
     coverageSort: { col: "fic_pct_reported", dir: "desc" }, coverageSearch: "",
     qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC",
     coveragePeriodKind: "monthly",
+    whoDistrict: "", whoTheme: "", whoSearch: "",
   };
   // Maps a "monthly"/"cumulative" pill kind to the matching DATA.periods
   // entry's period_id (period_type is "monthly" or "cumulative_annual" --
@@ -2507,6 +2523,257 @@
     supResult.build();
   }
 
+  // ================= WHO SUPPORTED ACTIVITIES =================
+  // This workbook is a single-month, single-duty-station field-monitoring
+  // highlights report (see who_activities.py's module docstring), not a
+  // multi-period activity database -- so, deliberately, this tab has no
+  // activity-status breakdown, no target-vs-achievement analysis beyond the
+  // one real pair (measles results reviewed), no month-over-month trend, and
+  // no province/implementing-partner filter: none of those fields exist in
+  // the source. Two real filters (District, Activity Theme) drive the
+  // Activity Distribution chart, the district map, and the Evidence table.
+  function whoFilteredEvidence(w) {
+    return w.evidence_records.filter(function (r) {
+      if (state.whoDistrict && r.district_canonical !== state.whoDistrict) return false;
+      if (state.whoTheme && r.activity_theme !== state.whoTheme) return false;
+      return true;
+    });
+  }
+
+  function whoKpiRow(w) {
+    var k = w.kpis;
+    return [
+      kpiCard("Field-Support Days / Visits", fmtNum(k.field_support_days), "Documented, " + w.reporting_period_label),
+      kpiCard("Zero-Dose Children Vaccinated", fmtNum(k.zero_dose_vaccinated_arandu), "Remote Arandu, Chitral Lower"),
+      kpiCard("Measles Case Results Reviewed", k.measles_results_reviewed + " of " + k.measles_results_total, fmtPct(k.measles_review_pct) + " complete"),
+      kpiCard("MOBR-Affected Districts Supported", fmtNum(k.mobr_districts_supported), "Measles outbreak response"),
+      kpiCard("Districts Covered", fmtNum(k.districts_covered), "Assigned to this duty station"),
+      kpiCard("Evidence Records", fmtNum(k.evidence_record_count), "Structured field findings"),
+    ].join("");
+  }
+
+  function whoFiltersHtml(w) {
+    var districtOptions = w.district_breakdown.map(function (r) { return r.district; }).sort();
+    var themeOptions = Object.keys(w.activity_theme_breakdown).sort();
+    return '<div class="card"><div class="controls-row">' +
+      '<label style="font-size:12.5px;">District: </label><select class="filter-select" id="who-district-filter">' +
+        '<option value="">All districts</option>' +
+        districtOptions.map(function (d) { return '<option value="' + escHtml(d) + '"' + (state.whoDistrict === d ? " selected" : "") + '>' + escHtml(d) + '</option>'; }).join("") +
+      '</select>' +
+      '<label style="font-size:12.5px;">Activity theme: </label><select class="filter-select" id="who-theme-filter">' +
+        '<option value="">All themes</option>' +
+        themeOptions.map(function (t) { return '<option value="' + escHtml(t) + '"' + (state.whoTheme === t ? " selected" : "") + '>' + escHtml(t) + '</option>'; }).join("") +
+      '</select>' +
+      '<button class="reset-btn" id="who-reset-filters">Reset Filters</button>' +
+    '</div></div>';
+  }
+
+  function whoThemeInsight(w) {
+    var filtered = whoFilteredEvidence(w);
+    var counts = {};
+    filtered.forEach(function (r) { counts[r.activity_theme] = (counts[r.activity_theme] || 0) + 1; });
+    var labels = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+    if (!labels.length) return "No evidence records match the current filter.";
+    return labels[0] + " " + plural(counts[labels[0]], "is", "are") + " the most common activity theme (" +
+      countPct(counts[labels[0]], filtered.length) + " of the records shown).";
+  }
+
+  function renderWhoThemeChart(w) {
+    destroyChart("whoTheme");
+    var canvas = document.getElementById("chart-who-theme");
+    if (!canvas) return;
+    var filtered = whoFilteredEvidence(w);
+    var counts = {};
+    filtered.forEach(function (r) { counts[r.activity_theme] = (counts[r.activity_theme] || 0) + 1; });
+    var labels = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+    var total = filtered.length;
+    var values = labels.map(function (l) { return counts[l]; });
+    canvas.parentElement.style.height = Math.max(160, labels.length * 46) + "px";
+    charts.whoTheme = new Chart(canvas, {
+      type: "bar",
+      data: { labels: labels, datasets: [{ label: "Evidence records", data: values, backgroundColor: "#1a5fb4",
+        labelText: values.map(function (v) { return countPct(v, total); }) }] },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } }, scales: { x: { grace: "25%", ticks: { precision: 0 } } } }
+    });
+  }
+
+  function whoGeoInsight(w) {
+    var features = w.district_map.features;
+    var names = Object.keys(features);
+    if (!names.length) return "No district-level evidence data available.";
+    var top = names.reduce(function (b, n) { return (!b || features[n].evidence_count > features[b].evidence_count) ? n : b; }, null);
+    return top + " has the most evidence-table findings (" + fmtNum(features[top].evidence_count) + " of " +
+      fmtNum(w.kpis.evidence_record_count) + "). Districts outside this duty station's assigned coverage are shown as " +
+      "“not covered by this report” on the map, distinct from a real zero.";
+  }
+
+  function whoGeoHtml(w) {
+    var rows = Object.keys(w.district_map.features).sort(function (a, b) {
+      return w.district_map.features[b].evidence_count - w.district_map.features[a].evidence_count;
+    }).map(function (d) {
+      return "<tr><td>" + escHtml(d) + "</td><td>" + fmtNum(w.district_map.features[d].evidence_count) + "</td></tr>";
+    }).join("");
+    return '<div class="card"><h2>🗺️ 3. Geographic Distribution</h2>' +
+      singleDistrictMapHtml("map-who", "map-tooltip-who", "Evidence & Findings by District",
+        "District boundaries: user-provided reference map.") +
+      '<div class="map-legend" style="margin-top:4px;"><span><span class="swatch" style="background:#d0d5dd;"></span>Not covered by this report</span></div>' +
+      '<div class="table-scroll" style="margin-top:12px;"><table><thead><tr><th>District</th><th>Evidence Records</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      editableInsight("who-geo-" + w.reporting_period_label, whoGeoInsight(w)) +
+    '</div>';
+  }
+
+  function whoTimelineInsight(w) {
+    if (!w.timeline.length) return "No dated evidence findings available to plot.";
+    var monthOnly = w.kpis.evidence_record_count - w.timeline.length;
+    return nounFor(w.timeline.length, "evidence finding") + " " + plural(w.timeline.length, "has", "have") +
+      " a specific date within " + w.reporting_period_label + ", from " + w.timeline[0].date + " to " + w.timeline[w.timeline.length - 1].date + "." +
+      (monthOnly > 0 ? " " + nounFor(monthOnly, "record") + " " + plural(monthOnly, "covers", "cover") + " the whole month without a specific day and " +
+        plural(monthOnly, "isn't", "aren't") + " plotted here." : "") +
+      " A month-over-month trend is not available yet -- only one reporting period has been received so far.";
+  }
+
+  function renderWhoTimelineChart(w) {
+    destroyChart("whoTimeline");
+    var canvas = document.getElementById("chart-who-timeline");
+    if (!canvas || !w.timeline.length) return;
+    var counts = {};
+    w.timeline.forEach(function (t) { counts[t.date] = (counts[t.date] || 0) + 1; });
+    var dates = Object.keys(counts).sort();
+    var values = dates.map(function (d) { return counts[d]; });
+    charts.whoTimeline = new Chart(canvas, {
+      type: "bar",
+      data: { labels: dates, datasets: [{ label: "Evidence findings", data: values, backgroundColor: "#5b7fd6", labelText: values.map(fmtNum) }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { y: { ticks: { stepSize: 1, precision: 0 }, grace: "25%" }, x: { ticks: { font: { size: 10 } } } } }
+    });
+  }
+
+  function whoTimelineHtml(w) {
+    return '<div class="card"><h2>📈 4. Field-Support Activity Timeline (' + escHtml(w.reporting_period_label) + ')</h2>' +
+      '<div class="chart-wrap tall"><canvas id="chart-who-timeline"></canvas></div>' +
+      editableInsight("who-timeline-" + w.reporting_period_label, whoTimelineInsight(w)) +
+    '</div>';
+  }
+
+  function whoKeyResultsHtml(w) {
+    var resultRows = w.key_results.map(function (r) {
+      return "<tr><td style=\"font-weight:600;white-space:nowrap;\">" + escHtml(r.theme) + "</td><td>" + escHtml(r.narrative) + "</td></tr>";
+    }).join("");
+    var contribItems = w.who_contributions.map(function (c) { return "<li>" + escHtml(c.replace(/^[•\s]+/, "")) + "</li>"; }).join("");
+    return '<div class="card"><h2>📋 5. Key WHO-Supported Results</h2>' +
+      '<div class="table-scroll"><table><thead><tr><th>Theme</th><th>Narrative Result</th></tr></thead><tbody>' + resultRows + '</tbody></table></div>' +
+      '<h3 style="margin-top:14px;">WHO Contribution / Action</h3><ul class="plain-list">' + contribItems + '</ul>' +
+    '</div>';
+  }
+
+  function whoDistrictHighlightsHtml(w) {
+    var filtered = state.whoDistrict ? w.district_highlights.filter(function (d) { return d.district === state.whoDistrict; }) : w.district_highlights;
+    var cards = filtered.map(function (d) {
+      return '<div class="district-highlight-card"><h4>' + escHtml(d.district) + '</h4><p>' + escHtml(d.narrative) + '</p></div>';
+    }).join("");
+    return '<div class="card"><h2>📍 6. District-Level Highlights</h2>' +
+      '<div class="district-highlight-grid">' + (cards || '<p class="sub">No district-level highlights match the current filter.</p>') + '</div>' +
+    '</div>';
+  }
+
+  function whoPriorityGapsHtml(w) {
+    var items = w.priority_gaps.map(function (g) { return "<li>" + escHtml(g.replace(/^[•\s]+/, "")) + "</li>"; }).join("");
+    return '<div class="card"><h2>⚠ 7. Priority System Gaps / Way Forward</h2><ul class="plain-list">' + items + '</ul></div>';
+  }
+
+  function whoInsightsHtml(w) {
+    var items = w.insights.map(function (i) { return "<li>" + escHtml(i) + "</li>"; }).join("");
+    return '<div class="card"><h2>🔎 8. Key Insights</h2><ul class="plain-list">' + items + '</ul></div>';
+  }
+
+  function whoManagementMessageHtml(w) {
+    return '<div class="card"><h2>📝 Management Message</h2><p style="font-size:13px;line-height:1.6;">' + escHtml(w.management_message) + '</p>' +
+      (w.source_note ? '<p class="section-note" style="margin-top:10px;">' + escHtml(w.source_note) + '</p>' : '') +
+    '</div>';
+  }
+
+  function whoEvidenceTableHtml(w) {
+    var rows = whoFilteredEvidence(w);
+    if (state.whoSearch) {
+      var q = state.whoSearch.toLowerCase();
+      rows = rows.filter(function (r) {
+        return (r.activity + " " + r.quantified_result + " " + r.district_canonical).toLowerCase().indexOf(q) !== -1;
+      });
+    }
+    var isFiltered = !!(state.whoDistrict || state.whoTheme || state.whoSearch);
+    var body = rows.map(function (r) {
+      return "<tr><td>" + escHtml(r.id) + "</td><td>" + escHtml(r.district_canonical) + "</td><td>" + escHtml(r.date_period_raw) + "</td>" +
+        "<td>" + escHtml(r.activity_theme) + "</td><td>" + escHtml(r.activity) + "</td><td>" + escHtml(r.quantified_result) + "</td>" +
+        "<td>" + escHtml(r.who_contribution) + "</td></tr>";
+    }).join("");
+    return '<div class="card"><h2>📄 9. Detailed Evidence Table</h2>' +
+      '<p class="section-note">' + fmtNum(rows.length) + " of " + fmtNum(w.evidence_records.length) + " evidence records shown" + (isFiltered ? " (filtered)" : "") + ".</p>" +
+      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search activity, result, district..." id="who-search" value="' + escHtml(state.whoSearch) + '"></div>' +
+      '<div class="table-scroll"><table><thead><tr><th>ID</th><th>District</th><th>Date / Period</th><th>Activity Theme</th><th>Activity / Finding</th><th>Quantified Result</th><th>WHO Contribution / Action</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+    '</div>';
+  }
+
+  function renderWhoActivities() {
+    var el = document.getElementById("tab-who");
+    var w = DATA.who_activities;
+    if (w.status !== "ok") {
+      el.innerHTML = '<div class="card"><h2>WHO Supported Activities</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
+        escHtml(w.message || "No WHO Supported Activities workbook has been uploaded yet.") + '</div></div>';
+      return;
+    }
+
+    var searchWasFocused = document.activeElement && document.activeElement.id === "who-search";
+    var searchCursorPos = searchWasFocused ? document.activeElement.selectionStart : null;
+
+    el.innerHTML =
+      '<div class="card"><h2>📋 WHO Supported Activities — ' + escHtml(w.reporting_period_label) + '</h2>' +
+        '<p class="section-note">Duty Station: ' + escHtml(w.duty_station) + '. ' + escHtml(w.subtitle || "") + '</p>' +
+        '<div class="grid kpi-row">' + whoKpiRow(w) + '</div>' +
+        editableInsight("who-overview-" + w.reporting_period_label, w.insights.join(" ")) +
+      '</div>' +
+      whoFiltersHtml(w) +
+      '<div class="card"><h2>💉 2. Activity Distribution</h2>' +
+        '<p class="section-note">Distribution of evidence-table findings by activity theme, derived from each record’s own Activity/Finding text (see the Detailed Evidence Table below for the underlying wording).</p>' +
+        '<div class="chart-wrap tall"><canvas id="chart-who-theme"></canvas></div>' +
+        editableInsight("who-theme-" + w.reporting_period_label, whoThemeInsight(w)) +
+      '</div>' +
+      whoGeoHtml(w) +
+      whoTimelineHtml(w) +
+      whoKeyResultsHtml(w) +
+      whoDistrictHighlightsHtml(w) +
+      whoPriorityGapsHtml(w) +
+      whoInsightsHtml(w) +
+      whoManagementMessageHtml(w) +
+      whoEvidenceTableHtml(w);
+
+    wireEditableInsights(el);
+    renderWhoThemeChart(w);
+    renderSingleDistrictMap("map-who", "map-tooltip-who", w.district_map,
+      function (e) { return e.evidence_count; },
+      function (name, e) { return name + "<br>Evidence records: " + fmtNum(e.evidence_count); },
+      function (name, e) { return name + ": " + fmtNum(e.evidence_count); });
+    renderWhoTimelineChart(w);
+
+    document.getElementById("who-district-filter").addEventListener("change", function (e) {
+      state.whoDistrict = e.target.value; renderWhoActivities();
+    });
+    document.getElementById("who-theme-filter").addEventListener("change", function (e) {
+      state.whoTheme = e.target.value; renderWhoActivities();
+    });
+    document.getElementById("who-reset-filters").addEventListener("click", function () {
+      state.whoDistrict = ""; state.whoTheme = ""; state.whoSearch = ""; renderWhoActivities();
+    });
+    var searchBox = document.getElementById("who-search");
+    if (searchWasFocused) {
+      searchBox.focus();
+      searchBox.setSelectionRange(searchCursorPos, searchCursorPos);
+    }
+    searchBox.addEventListener("input", function (e) {
+      state.whoSearch = e.target.value; renderWhoActivities();
+    });
+  }
+
   // ================= DATA QUALITY =================
   function renderQuality() {
     var el = document.getElementById("tab-quality");
@@ -2590,6 +2857,7 @@
     else if (name === "coverage") renderCoverage();
     else if (name === "surveillance") renderSurveillance();
     else if (name === "supervision") renderSupervision();
+    else if (name === "who") renderWhoActivities();
     else if (name === "quality") renderQuality();
   }
 
@@ -2678,7 +2946,12 @@
         // Tehsil/UC Explorer) nest an inner .card for styling, which would
         // otherwise produce a second, title-less slide for the same table.
         var topLevelCards = Array.prototype.filter.call(panel.querySelectorAll(".card"), function (card) {
-          return !card.parentElement.closest(".card");
+          if (card.parentElement.closest(".card")) return false;
+          // A pure filter-controls card (District/Theme selects, Reset
+          // button) has nothing worth a slide of its own -- same content
+          // Download PDF already hides via its own print stylesheet.
+          var hasContent = card.querySelector("h2, h3, .kpi-card, canvas, svg, table, .insight-box, .placeholder-card");
+          return !!hasContent;
         });
         topLevelCards.forEach(function (card) {
           var slide = pptx.addSlide();

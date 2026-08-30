@@ -20,9 +20,11 @@ import pandas as pd
 
 from .config import SHEET_NAMES, VPD_SHEET_NAMES
 from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
+from .who_activities import REQUIRED_SHEETS as WHO_ACTIVITIES_SIGNATURE
 
 COVERAGE_SIGNATURE = {name.strip().lower() for name in SHEET_NAMES.values()}
 VPD_SIGNATURE = {name.strip().lower() for name in VPD_SHEET_NAMES.values()}
+WHO_ACTIVITIES_SIGNATURE = {name.strip().lower() for name in WHO_ACTIVITIES_SIGNATURE}
 
 # A workbook doesn't need every expected sheet to match (e.g. a re-export
 # missing one sheet) -- this many of the signature's sheet names present is
@@ -33,7 +35,7 @@ MIN_MATCHING_SHEETS = 2
 
 @dataclass
 class DetectionResult:
-    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "unknown" | "empty" | "unreadable"
+    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "who_activities" | "unknown" | "empty" | "unreadable"
     matched_sheets: list = field(default_factory=list)
     all_sheets: list = field(default_factory=list)
     message: str = ""
@@ -78,6 +80,13 @@ def detect_workbook_type(path: Path) -> DetectionResult:
     normalized = {s.strip().lower(): s for s in sheets}
     coverage_matches = [normalized[k] for k in normalized if k in COVERAGE_SIGNATURE]
     vpd_matches = [normalized[k] for k in normalized if k in VPD_SIGNATURE]
+    who_matches = [normalized[k] for k in normalized if k in WHO_ACTIVITIES_SIGNATURE]
+
+    if len(who_matches) >= len(WHO_ACTIVITIES_SIGNATURE):
+        return DetectionResult(
+            "who_activities", who_matches, sheets,
+            f"Recognized as a WHO Supported Activities workbook (both {', '.join(sorted(WHO_ACTIVITIES_SIGNATURE))!r}-style sheets found)."
+        )
 
     if not coverage_matches and not vpd_matches and _is_indicator_sheet_workbook(path):
         return DetectionResult(

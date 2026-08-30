@@ -16,12 +16,14 @@ from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
 from src.pipeline.run import run as run_pipeline
 from src.pipeline.run_monitoring import run_monitoring
 from src.pipeline.run_vpd import run_vpd
+from src.pipeline.who_activities import run_who_activities
 
 if __name__ == "__main__":
     run_pipeline()
     vpd_summary = run_vpd()
     run_monitoring()
     run_indicator_sheet()
+    run_who_activities()
     build_dashboard()
     if vpd_summary is not None:
         build_bulletin()

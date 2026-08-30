@@ -61,6 +61,63 @@
   district data has been received so far for this domain — all Monitoring
   code aggregates by whatever districts are actually present, never a
   hardcoded list, so it will scale to full-province files unchanged.
+- **Part 1d (WHO Supported Activities)**: done. `src/pipeline/who_activities.py`
+  -> `data/processed/who_activities_summary.json`. Source file
+  (`data/raw/WHO_EPI_May_2024_Highlights_Dashboard.xlsx`) is **not** a
+  multi-period activity database — direct inspection showed it's a
+  single-month (May 2024), single-duty-station (Malakand) field-monitoring
+  highlights report covering 6 assigned KP districts, with 3 sheets that are
+  3 different views of the SAME underlying report (`Sheet1` raw narrative,
+  `Evidence & Findings` structured 11-row extraction, `WHO Highlights
+  Dashboard` polished summary) rather than independent datasets. Detected by
+  sheet-name signature (`REQUIRED_SHEETS` in `who_activities.py`, checked in
+  `detect.py` before the other domains), same "content, never filename"
+  principle as every other domain. That single-report shape drove a
+  deliberately smaller dashboard scope than a generic activity-tracker
+  template would suggest — built: Overview KPIs, Activity Distribution (by
+  a manually verified `ACTIVITY_THEME` mapping, E01-E11, chosen over
+  fuzzy/keyword inference given only 11 rows), Geographic Distribution
+  (reuses the existing Coverage/Monitoring map infrastructure —
+  `kp_districts.geojson`, `MAP_PROJECTION`, `renderSingleDistrictMap` — via
+  a `DISTRICT_NAME_CANONICAL` dict mapping this source's adjective-first
+  spelling, e.g. "Lower Chitral", to the project's established
+  place-name-first spelling, e.g. "Chitral Lower"), a within-May-2024
+  Timeline (explicitly labeled as such, not a multi-month trend), and
+  verbatim narrative sections (Key WHO-Supported Results, District-Level
+  Highlights, Priority System Gaps, Management Message) plus an
+  auto-derived Key Insights list and a searchable Detailed Evidence Table.
+  Deliberately **not** built, because the fields don't exist in the source:
+  activity status breakdown, broad target-vs-achievement analysis (beyond
+  the one source-stated measles-review KPI), multi-month trend, province
+  comparison, implementing-partner filter. The map distinguishes a real 0
+  (Bajaur — assigned to this duty station, zero evidence rows, but present
+  in the Highlights sheet's own district list) from genuinely-out-of-scope
+  (~30 other KP districts, absent entirely, rendered gray) by passing the
+  Highlights sheet's assigned-district list into `build_district_map()`, not
+  by treating every non-featured district the same way. The 4 headline KPIs
+  appear in 2-3 independently-typed/located places in the source (text
+  cells vs. a small numeric summary table vs. mentioned in the raw
+  narrative) — cross-checked by `_reconcile_kpis()`, surfaced in
+  `data_quality.headline_kpis_reconciled_against_summary_table_and_raw_narrative`.
+  Other confirmed data-quality findings, all flagged rather than silently
+  fixed: headline KPI cells are stored as Excel TEXT while the summary-table
+  copies of the same values are real numbers
+  (`numeric_fields_stored_as_text_in_source`); Bajaur has a narrative
+  highlight but no evidence row
+  (`districts_with_narrative_highlight_but_no_evidence_row`). Fully
+  independent of Coverage/VPD/Monitoring/Indicator-Sheet, same architectural
+  pattern as every other domain — a WHO-only upload still produces a working
+  dashboard tab, and its absence doesn't block anything else. Excel export
+  adds 5 sheets (WHO Activities Summary, WHO Evidence Data, WHO District
+  Summary, WHO Activity Theme Summary, WHO Data Quality) to
+  `EPI_Data_Export.xlsx` with the same freeze-panes/auto-filter/navy-header
+  formatting as the rest of that workbook. PPT export needed zero
+  WHO-specific code — the existing generic per-tab exporter
+  (`exportActiveTabToPptx`) walks `.card` elements and produced a correct
+  11-slide deck unaided; a small generic fix (skip content-free cards, e.g.
+  a filters-only card) was made for all tabs, not just this one. 18 tests in
+  `tests/test_who_activities.py`, pinned to real numbers from the source
+  file.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
@@ -239,6 +296,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 | `data/raw/RCA_Report_2.xls` | 1 HTML table, 50 columns, 340 child rows (34 RCA visits) | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
+| `data/raw/WHO_EPI_May_2024_Highlights_Dashboard.xlsx` | 3 sheets (`Sheet1`, `Evidence & Findings`, `WHO Highlights Dashboard`) | Single month, May 2024, Malakand duty station (6 assigned districts) | See Part 1d above (who_activities.py). 3 sheets are 3 views of one report, not independent data. |
 
 AFP (within VPD) has **not** been provided yet — see "Confirmed VPD decisions" below.
 
