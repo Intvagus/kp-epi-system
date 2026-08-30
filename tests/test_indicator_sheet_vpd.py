@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from src.pipeline.config import DISTRICT_TO_BOUNDARY
 from src.pipeline.detect import detect_workbook_type
 from src.pipeline.indicator_sheet_vpd import (
     KEY_INDICATORS, build_key_indicators_summary, find_indicator_sheet_files, load_indicator_sheet,
@@ -96,3 +97,33 @@ def test_no_target_values_are_fabricated(summary):
     # -- confirmed by inspection -- so the summary must never invent one.
     for row in summary["indicators"]:
         assert "target" not in row
+
+
+def test_measles_incidence_map_covers_every_canonical_district(summary):
+    # 36 real Coverage-file districts (this sheet spells several of them
+    # differently -- see DISTRICT_NAME_CANONICAL) plus the real Tor Ghar
+    # district, which has no Coverage-file data but does appear here.
+    m = summary["measles_incidence_map"]
+    assert m["unmapped_districts"] == []
+    assert set(DISTRICT_TO_BOUNDARY) <= set(m["features"])
+    assert "Tor Ghar" in m["features"]
+    assert len(m["features"]) == 37
+
+
+def test_measles_incidence_bands_match_who_thresholds(summary):
+    # Pinned to the real 2026 sheet: confirmed by direct inspection this is
+    # a genuine high-transmission year (36 of 37 districts >=20/million,
+    # only Kurram Upper in the moderate band, none in the low band) -- not
+    # an artifact of the banding logic, so this test also guards against a
+    # banding regression that would silently flatten a real severe-outbreak
+    # signal into "no districts affected".
+    m = summary["measles_incidence_map"]
+    abbottabad = m["features"]["Abbottabad"]
+    assert abbottabad["measles_incidence_per_million"] == pytest.approx(253.6807709)
+    assert abbottabad["category"] == "red"
+    kurram_upper = m["features"]["Kurram Upper"]
+    assert kurram_upper["measles_incidence_per_million"] == pytest.approx(13.31380642)
+    assert kurram_upper["category"] == "yellow"
+    from collections import Counter
+    counts = Counter(v["category"] for v in m["features"].values())
+    assert counts == {"red": 36, "yellow": 1}

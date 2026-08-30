@@ -22,6 +22,52 @@ import openpyxl
 
 INDICATOR_SHEET_TITLE_MARKER = "indicator sheet"
 
+# This workbook spells district names differently from the Coverage/
+# Monitoring files (its own data-entry convention, confirmed by direct
+# inspection -- e.g. "Bajour" not "Bajaur", "D I Khan" not "D.I. Khan").
+# Maps every one of its 37 district rows (36 real + "Torghar", matching
+# DISTRICT_TO_BOUNDARY's 36 keys plus the real Tor Ghar district that has no
+# Coverage-file data) to this project's canonical spelling, so the incidence
+# map can share the same kp_districts.geojson boundaries as every other map.
+# "South Wazirisan Upper"/"South Waziristan Lower" -> SW Wazir Belt/SW
+# Mehsud Belt carries the same Upper=Wazir/Lower=Mehsud assumption flagged in
+# config.DISTRICT_TO_BOUNDARY -- this sheet's own Upper/Lower naming is a
+# second, independent data point consistent with that assumption, not proof.
+DISTRICT_NAME_CANONICAL = {
+    "Abbottabad": "Abbottabad", "Bajour": "Bajaur", "Bannu": "Bannu",
+    "Battagram": "Battagram", "Buner": "Buner", "Charssada": "Charsadda",
+    "Chitral Lower": "Chitral Lower", "Chitral Upper": "Chitral Upper",
+    "D I Khan": "D.I. Khan", "Dir Lower": "Dir Lower", "Dir Upper": "Dir Upper",
+    "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber",
+    "Kohat": "Kohat", "Kohistan Lower": "Kohistan Lower", "Kohistan Upper": "Kohistan Upper",
+    "Kolai Palas": "Kolai Palas Kohistan", "Kurram L&C": "Kurram Lower and Central",
+    "Kurram Upper": "Kurram Upper", "Lakki Marwat": "Lakki Marwat", "Malakand": "Malakand",
+    "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
+    "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
+    "Peshawar": "Peshawar", "Shangla": "Shangla",
+    "South Wazirisan Upper": "SW Wazir Belt", "South Waziristan Lower": "SW Mehsud Belt",
+    "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank", "Torghar": "Tor Ghar",
+}
+
+# WHO-standard measles incidence bands (cases per million population,
+# annualized -- this sheet's own "measles_incidence_per_million" column is
+# already an annualized rate, confirmed by its column header). Fixed
+# thresholds, not derived from the data.
+INCIDENCE_BANDS = [
+    (5, "green", "Low (<5)"),
+    (20, "yellow", "Moderate (5 to <20)"),
+    (None, "red", "Disruptive outbreak (≥20)"),
+]
+
+
+def _incidence_band(value):
+    if value is None:
+        return None
+    for upper, color, label in INCIDENCE_BANDS:
+        if upper is None or value < upper:
+            return {"color": color, "label": label}
+    return None
+
 # Fixed column positions (1-indexed), confirmed against the real workbook --
 # not name-based, since the header text has trailing whitespace / minor
 # year-to-year wording drift ("% Sample Collected" vs "% Sampling").
@@ -155,7 +201,34 @@ def build_key_indicators_summary(sheet: dict) -> dict:
         "total_population": prov["total_population"],
         "total_cases_reported": prov["total_cases_reported"],
         "indicators": rows,
+        "measles_incidence_map": build_measles_incidence_map(sheet),
     }
+
+
+def build_measles_incidence_map(sheet: dict) -> dict:
+    """Per-district measles incidence (cases per million, this sheet's own
+    annualized figure -- never derived from a population proxy elsewhere in
+    this project, see CLAUDE.md's "Confirmed VPD decisions") banded into the
+    WHO-standard Low/Moderate/Disruptive-outbreak categories, keyed by this
+    project's canonical district name so it shares kp_districts.geojson with
+    every other choropleth map."""
+    features = {}
+    unmapped = []
+    for row in sheet["districts"]:
+        raw_name = str(row["district"]).strip()
+        canonical = DISTRICT_NAME_CANONICAL.get(raw_name)
+        if canonical is None:
+            unmapped.append(raw_name)
+            continue
+        value = row["measles_incidence_per_million"]
+        value = value if isinstance(value, (int, float)) else None
+        band = _incidence_band(value)
+        features[canonical] = {
+            "measles_incidence_per_million": value,
+            "category": band["color"] if band else None,
+            "category_label": band["label"] if band else None,
+        }
+    return {"unmapped_districts": sorted(unmapped), "features": features}
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

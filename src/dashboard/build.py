@@ -233,6 +233,12 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
           f"{len(payload['quality']['coverage_flags'])} quality flags)")
 
     chartjs_source = (DASHBOARD_DIR / "chart.umd.min.js").read_text(encoding="utf-8")
+    # PPTX export ("Download PPT", alongside the existing client-side
+    # "Download PDF"): PptxGenJS's own standalone browser bundle (includes
+    # JSZip inlined, no other runtime dependency), fetched once via npm
+    # (registry.npmjs.org) and checked into the repo -- same "never fetched
+    # at build or view time" rule as Chart.js and the district boundaries.
+    pptxgenjs_source = (DASHBOARD_DIR / "pptxgen.bundle.js").read_text(encoding="utf-8")
     # District/ADM2 boundaries for the Coverage/Monitoring choropleth maps.
     # Traced from the user-provided reference map (KP_MAP_1.pptx) rather than
     # the earlier geoBoundaries.org set, since it's a real per-district
@@ -247,6 +253,7 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     html = (
         template
         .replace("/*__CHARTJS_SOURCE__*/", chartjs_source)
+        .replace("/*__PPTXGENJS_SOURCE__*/", pptxgenjs_source)
         .replace("/*__EPI_DATA_JSON__*/", payload_json)
         .replace("/*__KP_GEOJSON__*/", kp_geojson)
     )
