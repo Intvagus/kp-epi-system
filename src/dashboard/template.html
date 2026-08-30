@@ -103,6 +103,11 @@
   }
   select.filter-select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; margin-right: 8px; margin-bottom: 10px; }
   .controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* Mirrors a filter <select>'s current value as plain text for print/PDF,
+     since the interactive control itself is hidden when printing (see the
+     @media print block below) -- without this, a filtered chart/table would
+     print with no visible indication of which filter value produced it. */
+  .print-only-filter { display: none; }
   .pagination { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12.5px; }
   .pagination button {
     border: 1px solid var(--border); background: #fff; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 12px;
@@ -236,13 +241,14 @@
      prints uselessly), but what they were SET TO must stay visible as plain
      text, or the PDF wouldn't say which period/tab it is. */
   @media print {
-    nav.tabs, .controls-row select, button.export-btn, button.reset-btn, .insight-box[contenteditable]::before,
+    nav.tabs, .controls-row select, .controls-row label, button.export-btn, button.reset-btn, .insight-box[contenteditable]::before,
     .pagination, input.search-box, th.sorted-asc::after, th.sorted-desc::after { display: none !important; }
     .period-pill:not(.active) { display: none !important; }
     .period-pill.active {
       background: none !important; color: #000 !important; border: none !important;
       padding: 0 !important; font-weight: 700; font-size: 13px;
     }
+    .print-only-filter { display: inline-block !important; font-weight: 700; font-size: 12.5px; margin-right: 12px; }
     .tab-panel { display: none !important; }
     .tab-panel.active { display: block !important; }
     body { background: #fff; }
@@ -2560,10 +2566,12 @@
         '<option value="">All districts</option>' +
         districtOptions.map(function (d) { return '<option value="' + escHtml(d) + '"' + (state.whoDistrict === d ? " selected" : "") + '>' + escHtml(d) + '</option>'; }).join("") +
       '</select>' +
+      '<span class="print-only-filter">District: ' + escHtml(state.whoDistrict || "All districts") + '</span>' +
       '<label style="font-size:12.5px;">Activity theme: </label><select class="filter-select" id="who-theme-filter">' +
         '<option value="">All themes</option>' +
         themeOptions.map(function (t) { return '<option value="' + escHtml(t) + '"' + (state.whoTheme === t ? " selected" : "") + '>' + escHtml(t) + '</option>'; }).join("") +
       '</select>' +
+      '<span class="print-only-filter">Activity theme: ' + escHtml(state.whoTheme || "All themes") + '</span>' +
       '<button class="reset-btn" id="who-reset-filters">Reset Filters</button>' +
     '</div></div>';
   }
@@ -2709,7 +2717,9 @@
     }).join("");
     return '<div class="card"><h2>📄 9. Detailed Evidence Table</h2>' +
       '<p class="section-note">' + fmtNum(rows.length) + " of " + fmtNum(w.evidence_records.length) + " evidence records shown" + (isFiltered ? " (filtered)" : "") + ".</p>" +
-      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search activity, result, district..." id="who-search" value="' + escHtml(state.whoSearch) + '"></div>' +
+      '<div class="controls-row"><input type="text" class="search-box" placeholder="Search activity, result, district..." id="who-search" value="' + escHtml(state.whoSearch) + '">' +
+        (state.whoSearch ? '<span class="print-only-filter">Search: &ldquo;' + escHtml(state.whoSearch) + '&rdquo;</span>' : "") +
+      '</div>' +
       '<div class="table-scroll"><table><thead><tr><th>ID</th><th>District</th><th>Date / Period</th><th>Activity Theme</th><th>Activity / Finding</th><th>Quantified Result</th><th>WHO Contribution / Action</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
     '</div>';
   }
@@ -2824,8 +2834,10 @@
         '<div class="table-scroll"><table><thead><tr><th>Period</th><th>Level</th><th>Entity</th><th>Reason</th></tr></thead><tbody>' + exclRowsHtml + '</tbody></table></div></div>' +
       '<div class="card"><h2>All flags (' + fmtNum(filtered.length) + ')</h2>' +
         '<div class="controls-row">' +
-          '<select class="filter-select" id="quality-type-filter">' + typeOptions + '</select>' +
+          '<label style="font-size:12.5px;">Flag type: </label><select class="filter-select" id="quality-type-filter">' + typeOptions + '</select>' +
+          '<span class="print-only-filter">Flag type: ' + escHtml(state.qualityFilterType || "All flag types") + '</span>' +
           '<input type="text" class="search-box" placeholder="Search entity..." id="quality-search" value="' + escHtml(state.qualitySearch) + '">' +
+          (state.qualitySearch ? '<span class="print-only-filter">Search: &ldquo;' + escHtml(state.qualitySearch) + '&rdquo;</span>' : "") +
         '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>Period</th><th>Level</th><th>Entity</th><th>Flag type</th><th>Detail</th></tr></thead><tbody>' + flagRowsHtml + '</tbody></table></div>' +
         '<div class="pagination">' +
@@ -2906,10 +2918,16 @@
   function cardTitleText(card) {
     var h = card.querySelector("h2, h3");
     if (h) return h.textContent.trim();
-    // A couple of tables are preceded by a standalone <h3> sitting outside
-    // their .card wrapper rather than inside it -- fall back to that.
+    // A couple of tables/KPI rows are preceded by a heading sitting outside
+    // their .card wrapper -- either a standalone <h2>/<h3> sibling, or (e.g.
+    // the RCA/Supervisory Checklist section intros) a sibling
+    // <div class="section-heading"> that itself contains the <h2>.
     var prev = card.previousElementSibling;
-    if (prev && /^H[23]$/.test(prev.tagName)) return prev.textContent.trim();
+    if (prev) {
+      if (/^H[23]$/.test(prev.tagName)) return prev.textContent.trim();
+      var prevHeading = prev.querySelector("h2, h3");
+      if (prevHeading) return prevHeading.textContent.trim();
+    }
     return "Section";
   }
 
@@ -3006,11 +3024,67 @@
               });
               if (tableData.length) {
                 slide.addTable(tableData, { x: 0.4, y: cursorY, w: 12.5, autoPage: false, fontFace: "Arial", border: { type: "solid", color: "DDDDDD", pt: 0.5 } });
+                cursorY += Math.min(rows.length * 0.28 + 0.15, 4.5);
                 if (table.querySelectorAll("tr").length > 25) {
                   slide.addText("Showing first 25 of " + table.querySelectorAll("tr").length + " rows -- see the full dashboard for the complete table.",
                     { x: 0.4, y: 7.0, w: 12.5, h: 0.3, fontSize: 9, italic: true, color: "888888" });
                 }
               }
+            }
+          }
+
+          // A card's substance is sometimes a plain <ul> (bullet findings,
+          // gaps, contribution notes) or a grid of small narrative cards
+          // (e.g. WHO District-Level Highlights) rather than a chart or
+          // <table> -- those were previously dropped entirely, producing a
+          // slide with only a title. Render whatever of these is present,
+          // stacked below any chart/table already placed above.
+          var highlightGrid = card.querySelector(".district-highlight-grid");
+          if (highlightGrid) {
+            var hCards = Array.prototype.slice.call(highlightGrid.children);
+            var hRows = hCards.map(function (hc) {
+              var h4 = hc.querySelector("h4"); var p = hc.querySelector("p");
+              return [
+                { text: h4 ? h4.textContent.trim() : "", options: { fontSize: 10, bold: true, color: "1a3a7a" } },
+                { text: p ? p.textContent.trim() : "", options: { fontSize: 10 } },
+              ];
+            });
+            if (hRows.length) {
+              slide.addTable(hRows, {
+                x: 0.4, y: cursorY, w: 12.5, autoPage: false, fontFace: "Arial", colW: [2.6, 9.9],
+                border: { type: "solid", color: "DDDDDD", pt: 0.5 }, valign: "top",
+              });
+              cursorY += Math.min(hRows.length * 0.55 + 0.15, 4.5);
+            }
+          }
+
+          var lists = Array.prototype.slice.call(card.querySelectorAll("ul"));
+          lists.forEach(function (ul) {
+            var items = Array.prototype.map.call(ul.querySelectorAll("li"), function (li) {
+              return { text: li.textContent.trim(), options: { bullet: { code: "2022" }, fontSize: 11, breakLine: true } };
+            });
+            if (!items.length) return;
+            var h = Math.min(items.length * 0.3 + 0.1, 6.7 - cursorY);
+            if (h <= 0) return;
+            slide.addText(items, { x: 0.4, y: cursorY, w: 12.5, h: h, fontSize: 11, color: "333333", valign: "top" });
+            cursorY += h + 0.15;
+          });
+
+          // Fallback: a card whose only body content is narrative paragraph
+          // text (e.g. the Management Message card) -- gated on cursorY
+          // still being at its untouched starting value, i.e. nothing above
+          // (KPIs, chart/map, table, highlight grid, list) put anything on
+          // the slide yet, so an already-populated slide is never cluttered
+          // with a duplicate of a table caption or section note.
+          if (cursorY === 0.9) {
+            var paras = Array.prototype.filter.call(card.querySelectorAll("p"), function (p) {
+              return !p.closest(".insight-box") && p.textContent.trim();
+            });
+            if (paras.length) {
+              var paraText = paras.map(function (p) { return p.textContent.trim(); }).join("\n\n");
+              var ph = Math.min(paras.length * 0.5 + 0.5, 6.7 - cursorY);
+              slide.addText(paraText, { x: 0.4, y: cursorY, w: 12.5, h: Math.max(ph, 0.4), fontSize: 12, color: "333333", valign: "top" });
+              cursorY += ph + 0.15;
             }
           }
 
