@@ -288,6 +288,121 @@
     (previously its own separate card immediately below the district map,
     added in the first refinement round) -- a straight swap, not an
     addition, so the age/dose breakdown no longer appears twice on the tab.
+- **Fifth refinement round** (Monitoring & Supervision restructured into
+  Service Delivery, done): this explicitly reverses the first round's
+  AskUserQuestion answer ("keep as its own tab") per the client's own later
+  instruction ("As discussed, the Monitoring & Supervision content should be
+  treated as a subsection/component of Service Delivery").
+  1. **Tab merge**: the standalone "Monitoring and Supervision" nav button
+     and `#tab-supervision` panel are gone; `renderCoverage()` now always
+     renders a Coverage-specific block (real content, or its existing
+     "no Service Delivery data" placeholder) followed by a "Monitoring &amp;
+     Supervision" `.section-divider` and the RCA/Supervisory content, in the
+     same `#tab-coverage` panel -- restructured specifically to fix a real
+     independence bug: the old `renderCoverage()` early-returned before ever
+     reaching Monitoring content when Coverage data was absent, silently
+     hiding RCA/Supervisory data that had, in fact, been uploaded. Now
+     Coverage-absent-but-Monitoring-present (and vice versa) both render
+     correctly, preserving the "every domain works independently" rule
+     applied everywhere else in this project. `renderRcaSection` /
+     `renderSupervisorySection` (their existing `{html, build}` pattern) are
+     unchanged in shape, just invoked from `renderCoverage()` instead of a
+     deleted `renderSupervision()`; the RCA age-group dropdown's change
+     handler now calls `renderCoverage()` to re-render. The Overview tab's
+     "no data" placeholder text and its default empty-state sentence were
+     reworded to describe Monitoring &amp; Supervision as a subsection, not a
+     tab (no functional change).
+  2. **340 vs. 320 data-integrity finding, investigated per the client's
+     explicit ask, confirmed correct (not a bug)**: the RCA Summary KPI's
+     "Children assessed" (340) and the Zero-dose KPI's "assessed" denominator
+     (320) are two different, both-genuine counts from
+     `clean_monitoring.py`'s `is_penta1_assessed` field (Penta1 status is
+     "Vaccinated" or "Not Vaccinated" -- excludes 20 rows where Penta1 is
+     "Not Applicable"/blank). 340 = every child row in the RCA visit data;
+     320 = the subset actually assessed for Penta1 specifically, the correct
+     WHO-standard zero-dose denominator (a child RCA didn't assess for
+     Penta1 can't contribute to a zero-dose rate). Not merged or
+     reconciled -- they're genuinely different questions. The Zero-dose KPI
+     card's caption was reworded from "X% of 320 assessed" to "X% of 320
+     assessed for Penta1 (of 340 children assessed overall)" so the
+     denominator difference reads as intentional on the dashboard itself,
+     not as an unexplained discrepancy.
+  3. **RCA Coverage Map re-added**: `rca_district_map()` (already computed
+     server-side, unused in the UI since the first refinement round removed
+     it) is rendered again as its own card, via the same
+     `singleDistrictMapHtml`/`renderSingleDistrictMap` generic pair every
+     other single-district map on this dashboard uses (Diphtheria/NNT/
+     Pertussis/WHO) -- children-assessed is the mapped value, with RCA
+     visits and zero-dose count in the hover tooltip. Only Abbottabad shows
+     non-zero on the map in the data received so far, same "real 0 for
+     every other district" convention as the other activity maps.
+  4. **Cold Chain &amp; Vaccine Logistics -- two new site-type
+     visualizations added**, alongside (not replacing) the existing
+     Fixed/Outreach/Mobile KPI boxes: a Site-Type Distribution doughnut, and
+     a new "Cold Chain Readiness by Site Type" grouped bar
+     (backup-power-available % and stockout-in-last-3-months % per site
+     type). Both use whatever site_type categories are actually present in
+     the upload, never a hardcoded Fixed/Outreach/Mobile list. The second
+     chart needed one new backend function,
+     `supervisory_site_type_cold_chain()` in `indicators_monitoring.py` -- a
+     genuine per-row cross-tab (site_type, backup_power_available, and
+     stockout_last_3_months all live on the same visit row already), not a
+     derived or estimated figure; a site type with zero answered rows for a
+     field reports `pct: null`, never a fabricated 0%.
+  5. **"Analyze Monitor Remarks" -- new feature, rule-based, no API call**:
+     per the client's explicit instruction ("if it need any API or anything
+     then dont do it... just analyse it yourself"), this is a deterministic
+     keyword-rule scan run entirely client-side in the browser on demand (a
+     button click, not automatic), never a live AI/LLM call -- consistent
+     with this dashboard being a fully offline static file and with the
+     first refinement round's identical "Key Remarks from Monitors"
+     decision. `categorizeMonitorRemarks()` buckets each RCA/Supervisory
+     remark into Key Insights or Key Issues by keyword match
+     (`POSITIVE_REMARK_TERMS` / `ISSUE_REMARK_TERMS`), with a negation guard
+     (`isNegatedBefore()`) so a remark like "no any issue found during
+     session" isn't miscategorized as an issue just because it contains the
+     word "issue" -- found and fixed via direct testing against the real
+     remark text in this session's data, not assumed. Remarks matching
+     neither list go to a neutral "other" bucket (never silently dropped --
+     the count is surfaced in the panel's own text and the remarks
+     themselves stay visible in the unchanged "Key Remarks from Monitors"
+     table alongside this new panel). Output groups by District/UC in a
+     table (so a flagged issue keeps its geographic context, per the
+     client's requirement), and only lists a "Recommended Follow-up" line
+     for a UC that actually has an issue-flagged remark -- no follow-up
+     text is invented when none exists. Empty state ("No monitor remarks
+     available for AI analysis.") shown directly, without a clickable
+     button, when neither RCA nor Supervisory has any non-blank remark.
+     Only remark text and district/UC/date values already present in the
+     source rows are ever shown -- nothing generated or inferred, and no
+     internal prompt/implementation detail is exposed (there is none; this
+     is plain JS, not a model call).
+  6. **Overview tab**: the Supervisory Checklist summary card's
+     auto-insight sentence no longer cites `composite_scores` ("Lowest-
+     scoring category: X") -- switched to the same "weakest checklist item"
+     figure already used in the Supervisory section itself
+     (`compliance_items[0]`), so the now-fully-unrendered Composite
+     Compliance Score concept doesn't surface anywhere on the dashboard, not
+     even indirectly in a summary sentence. `supervisory_composite_scores()`
+     and `supervisory_facility_rankings()` themselves are left computed and
+     in the JSON payload (unused by any UI element, like
+     `daily_visit_trend` since the first refinement round) rather than
+     deleted outright, matching this project's established "leave backend
+     data intact, remove only display" convention -- deleting them would
+     also mean deleting their pinned tests for no functional benefit.
+  7. **Verified against the client's explicit removal checklist** (grepped
+     the rebuilt `template.html`, zero matches for all of): Supervisory Map,
+     Composite Compliance Score, District Composite Score, Facility
+     Ranking, Fixed vs Outreach Site Graph, Daily Visit Trend. A Playwright
+     sweep of all 5 tabs (Overview/Service Delivery/VPD Surveillance/WHO/
+     Data Quality) confirmed zero console errors, the merged tab renders
+     both Coverage and Monitoring content correctly, the RCA age-group
+     dropdown and the new Analyze button both work with zero errors, and
+     the PPT export of the merged Service Delivery tab produced 20 slides
+     with zero empty ones (including the RCA map and Analyze Monitor
+     Remarks card as their own slides). 149/151 tests passing (the same 2
+     pre-existing sandbox-only Playwright-bulletin-PDF failures as every
+     prior round, unrelated to this change).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

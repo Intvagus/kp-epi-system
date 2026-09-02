@@ -69,6 +69,7 @@ def _build_supervisory_summary(sup: pd.DataFrame) -> dict:
         "overview": ind.supervisory_overview(sup),
         "composite_scores": ind.supervisory_composite_scores(sup),
         "site_type_breakdown": ind.supervisory_site_type_breakdown(sup),
+        "site_type_cold_chain": ind.supervisory_site_type_cold_chain(sup),
         "hf_type_breakdown": ind.supervisory_hf_type_breakdown(sup),
         "compliance_items": ind.supervisory_compliance_items(sup),
         "practice_risk_flags": ind.supervisory_practice_risk_flags(sup),

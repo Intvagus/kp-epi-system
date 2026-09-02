@@ -191,6 +191,11 @@
   }
   .anomaly-box h3 { margin: 0 0 4px 0; color: var(--poor); font-size: 13px; }
   .anomaly-box p { margin: 0 0 8px 0; font-size: 12px; color: var(--text-dim); }
+  .anomaly-box.good-box { background: var(--good-bg); border-color: var(--good); }
+  .anomaly-box.good-box h3 { color: var(--good); }
+  ul.analysis-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
+  ul.analysis-list li { margin-bottom: 5px; }
+  ul.analysis-list li strong { color: var(--navy); }
   button.reset-btn {
     padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px;
     background: #f4f6fb; color: var(--navy); cursor: pointer; margin-bottom: 10px;
@@ -281,7 +286,6 @@
   <button data-tab="overview" class="active">Overview</button>
   <button data-tab="coverage">Service Delivery</button>
   <button data-tab="surveillance">VPD Surveillance</button>
-  <button data-tab="supervision">Monitoring and Supervision</button>
   <button data-tab="who">WHO Supported Activities</button>
   <button data-tab="quality">Data Quality</button>
 </nav>
@@ -290,7 +294,6 @@
   <section id="tab-overview" class="tab-panel active"></section>
   <section id="tab-coverage" class="tab-panel"></section>
   <section id="tab-surveillance" class="tab-panel"></section>
-  <section id="tab-supervision" class="tab-panel"></section>
   <section id="tab-who" class="tab-panel"></section>
   <section id="tab-quality" class="tab-panel"></section>
 </main>
@@ -398,7 +401,7 @@
     var prov = provinceRow();
     if (!prov) {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
-        'No Service Delivery data uploaded yet. See the Service Delivery tab, or the VPD Surveillance/Monitoring and Supervision tabs if that\'s what was uploaded.</div></div>' +
+        'No Service Delivery data uploaded yet. See the Service Delivery tab (which also covers Monitoring &amp; Supervision), or the VPD Surveillance tab if that\'s what was uploaded.</div></div>' +
         '<h3 class="tab-summaries-heading">Other Tabs at a Glance</h3><div id="overview-tab-summaries" class="grid two-col"></div>';
       renderOtherTabSummaries();
       return;
@@ -527,15 +530,15 @@
     }
     if (m.supervisory.status === "ok") {
       var sov = m.supervisory.overview;
-      var worstScore2 = m.supervisory.composite_scores.reduce(function (w, s) { return (s.avg_pct !== null && (!w || s.avg_pct < w.avg_pct)) ? s : w; }, null);
+      var weakestItem2 = m.supervisory.compliance_items.length ? m.supervisory.compliance_items[0] : null;
       var supSummary = nounFor(sov.total_visits, "supervisory visit") + " to " + nounFor(sov.facilities_covered, "facility", "facilities") +
         " in " + nounFor(sov.districts_covered, "district") + "." +
-        (worstScore2 ? " Lowest-scoring category: " + worstScore2.category + " (" + fmtPct(worstScore2.avg_pct) + " average)." : "");
+        (weakestItem2 ? " Weakest checklist item: \"" + weakestItem2.item + "\" at " + countPct(weakestItem2.yes, weakestItem2.answered) + " compliance." : "");
       cards.push('<div class="card"><h2>✅ Supervisory Checklist Summary</h2>' +
         editableInsight("monitoring-supervisory-summary-" + (m.supervisory.reporting_window || ""), supSummary) + '</div>');
     }
 
-    el.innerHTML = cards.length ? cards.join("") : '<div class="card"><p class="sub">No VPD Surveillance or Monitoring and Supervision data uploaded yet -- their summaries will appear here once available.</p></div>';
+    el.innerHTML = cards.length ? cards.join("") : '<div class="card"><p class="sub">No VPD Surveillance or Monitoring &amp; Supervision data uploaded yet -- their summaries will appear here once available.</p></div>';
     wireEditableInsights(el);
   }
 
@@ -1393,47 +1396,65 @@
   function renderCoverage() {
     var el = document.getElementById("tab-coverage");
     var summary = DATA.coverage_summary;
-    if (summary.status !== "ok") {
-      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
-        'No Service Delivery data uploaded yet.<br><span style="font-size:12px;">Upload a coverage workbook (District/Tehsil/UC Wise Analysis sheets) to populate this tab -- the VPD Surveillance and Monitoring and Supervision tabs work independently and don\'t need it.</span></div></div>';
-      return;
-    }
+    var m = DATA.monitoring;
+
+    // Monitoring & Supervision is rendered as a subsection of Service
+    // Delivery, not a standalone tab -- and, like every other domain in
+    // this dashboard, it must render regardless of whether Coverage data
+    // itself was uploaded (Coverage/VPD/Monitoring stay fully independent
+    // in both directions; see CLAUDE.md). So this function no longer
+    // early-returns on missing Coverage data -- it always builds a
+    // Coverage-specific block (real content, or its own placeholder) and
+    // always attempts the Monitoring/Supervision block underneath.
     var kinds = [];
-    if (summary.periods.monthly && summary.periods.monthly.status === "ok") {
-      kinds.push({ key: "monthly", label: "Monthly — " + summary.periods.monthly.executive.current_period_label });
-    }
-    if (summary.periods.cumulative && summary.periods.cumulative.status === "ok") {
-      kinds.push({ key: "cumulative", label: "Cumulative — " + summary.periods.cumulative.executive.current_period_label });
-    }
-    if (!kinds.length) {
-      el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>No Coverage data uploaded yet.</div></div>';
-      return;
-    }
-    if (kinds.map(function (k) { return k.key; }).indexOf(state.coveragePeriodKind) === -1) {
-      state.coveragePeriodKind = kinds[0].key;
+    if (summary.status === "ok") {
+      if (summary.periods.monthly && summary.periods.monthly.status === "ok") {
+        kinds.push({ key: "monthly", label: "Monthly — " + summary.periods.monthly.executive.current_period_label });
+      }
+      if (summary.periods.cumulative && summary.periods.cumulative.status === "ok") {
+        kinds.push({ key: "cumulative", label: "Cumulative — " + summary.periods.cumulative.executive.current_period_label });
+      }
     }
 
-    var pillsHtml = kinds.length > 1
-      ? '<div class="controls-row" style="margin-bottom:14px;">' + kinds.map(function (k) {
-          return '<button class="period-pill' + (k.key === state.coveragePeriodKind ? " active" : "") + '" data-kind="' + k.key + '">' + k.label + '</button>';
-        }).join("") + '</div>'
-      : '';
+    var coverageHtml, kind = null, cs = null;
+    if (kinds.length) {
+      if (kinds.map(function (k) { return k.key; }).indexOf(state.coveragePeriodKind) === -1) {
+        state.coveragePeriodKind = kinds[0].key;
+      }
+      var pillsHtml = kinds.length > 1
+        ? '<div class="controls-row" style="margin-bottom:14px;">' + kinds.map(function (k) {
+            return '<button class="period-pill' + (k.key === state.coveragePeriodKind ? " active" : "") + '" data-kind="' + k.key + '">' + k.label + '</button>';
+          }).join("") + '</div>'
+        : '';
+      kind = state.coveragePeriodKind;
+      cs = summary.periods[kind];
+      syncPeriodIdToCoverageKind(kind);
 
-    var kind = state.coveragePeriodKind;
-    var cs = summary.periods[kind];
-    syncPeriodIdToCoverageKind(kind);
+      coverageHtml = pillsHtml +
+        executiveOverviewHtml(cs, kind) +
+        antigenMapsGridHtml(cs, kind) +
+        antigenAnalysisHtml(cs, kind) +
+        ucOnlyAntigenHtml(cs, kind) +
+        '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
+        dropoutAnalysisHtml(cs, kind) +
+        trendsHtml(cs, kind) +
+        '<div class="card"><h2>Detailed District / Tehsil / UC Explorer</h2>' +
+        '<p class="section-note">Drill down from province &rarr; district &rarr; tehsil &rarr; UC for the Monthly/Cumulative period selected above.</p>' +
+        '<div id="coverage-explorer-mount"></div></div>';
+    } else {
+      coverageHtml = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
+        'No Service Delivery (Coverage) data uploaded yet.<br><span style="font-size:12px;">Upload a coverage workbook (District/Tehsil/UC Wise Analysis sheets) to populate this section -- VPD Surveillance and the Monitoring &amp; Supervision subsection below work independently and don\'t need it.</span></div></div>';
+    }
 
-    el.innerHTML = pillsHtml +
-      executiveOverviewHtml(cs, kind) +
-      antigenMapsGridHtml(cs, kind) +
-      antigenAnalysisHtml(cs, kind) +
-      ucOnlyAntigenHtml(cs, kind) +
-      '<div id="section-targetgap">' + targetGapHtml(cs, kind) + '</div>' +
-      dropoutAnalysisHtml(cs, kind) +
-      trendsHtml(cs, kind) +
-      '<div class="card"><h2>Detailed District / Tehsil / UC Explorer</h2>' +
-      '<p class="section-note">Drill down from province &rarr; district &rarr; tehsil &rarr; UC for the Monthly/Cumulative period selected above.</p>' +
-      '<div id="coverage-explorer-mount"></div></div>';
+    var rcaResult = renderRcaSection(m.rca);
+    var supResult = renderSupervisorySection(m.supervisory);
+    var monitoringHtml = "";
+    if (!(m.rca.status === "awaiting_data" && m.supervisory.status === "awaiting_data")) {
+      monitoringHtml = '<div class="section-divider" style="margin-top:24px;"><div class="line"></div><div class="label">Monitoring &amp; Supervision</div><div class="line"></div></div>' +
+        rcaResult.html + supResult.html + monitorRemarksHtml(m) + monitorRemarksAnalysisHtml(m);
+    }
+
+    el.innerHTML = coverageHtml + monitoringHtml;
 
     el.querySelectorAll(".period-pill").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -1443,13 +1464,18 @@
       });
     });
 
-    renderAntigenMapsGrid(cs, kind);
-    renderAntigenAnalysisChart(cs);
-    renderUcOnlyAntigenChart(cs, kind);
-    renderTargetGapChart(cs, kind);
-    renderDropoutChart(cs);
-    renderTrendsChart(cs);
-    renderCoverageExplorer();
+    if (kinds.length) {
+      renderAntigenMapsGrid(cs, kind);
+      renderAntigenAnalysisChart(cs);
+      renderUcOnlyAntigenChart(cs, kind);
+      renderTargetGapChart(cs, kind);
+      renderDropoutChart(cs);
+      renderTrendsChart(cs);
+      renderCoverageExplorer();
+    }
+    rcaResult.build();
+    supResult.build();
+    wireMonitorRemarksAnalysis(el, m);
     wireEditableInsights(el);
   }
 
@@ -2247,7 +2273,7 @@
     var kpis = [
       monitoringKpiCard("Children assessed", fmtNum(ov.total_children_assessed), rca.reporting_window || ""),
       monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), nounFor(ov.districts_covered, "district")),
-      monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed"),
+      monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1 (of " + fmtNum(ov.total_children_assessed) + " children assessed overall)"),
       monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
     ].join("");
 
@@ -2305,6 +2331,16 @@
       ? "Most-cited reason for non-vaccination: \"" + topReason + "\" (" + countPct(rca.non_vaccination_reasons[topReason], reasonsTotal) + " of " + fmtNum(reasonsTotal) + " recorded reasons)."
       : "";
 
+    var rcaMapDistricts = rca.district_map ? Object.keys(rca.district_map.features) : [];
+    var rcaMapTop = rcaMapDistricts.reduce(function (best, name) {
+      return (!best || rca.district_map.features[name].children_assessed > rca.district_map.features[best].children_assessed) ? name : best;
+    }, null);
+    var rcaMapInsightId = "monitoring-rca-map-" + (rca.reporting_window || "");
+    var rcaMapAutoInsight = rcaMapTop && rca.district_map.features[rcaMapTop].children_assessed > 0
+      ? rcaMapTop + " has the most children assessed by RCA (" + fmtNum(rca.district_map.features[rcaMapTop].children_assessed) + ")." +
+        (rca.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + rca.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No RCA activity recorded in this dataset yet.";
+
     var html =
       '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
         '<p class="sub">Community-based, child-level spot checks of vaccination status.</p></div>' +
@@ -2337,7 +2373,11 @@
           '<div><h3>High-Risk Population</h3><div class="chart-wrap"><canvas id="chart-rca-hrp"></canvas></div></div>' +
         '</div>' +
         editableInsight(areaInsightId, areaAutoInsight) +
-      '</div>';
+      '</div>' +
+      (rcaMapDistricts.length ? '<div class="card"><h2>🗺️ RCA Coverage Map</h2>' +
+        singleDistrictMapHtml("map-rca", "map-tooltip-rca", "Children assessed by district", "District boundaries: user-provided reference map. Reflects only the district(s) actually covered by the RCA data received.") +
+        editableInsight(rcaMapInsightId, rcaMapAutoInsight) +
+      '</div>' : "");
 
     return { html: html, build: function () {
       destroyChart("rcaAntigen"); destroyChart("rcaAreaType");
@@ -2357,7 +2397,14 @@
 
       var rcaAgeGroupSelect = document.getElementById("rca-agegroup-filter");
       if (rcaAgeGroupSelect) {
-        rcaAgeGroupSelect.addEventListener("change", function (e) { state.rcaAgeGroup = e.target.value; renderSupervision(); });
+        rcaAgeGroupSelect.addEventListener("change", function (e) { state.rcaAgeGroup = e.target.value; renderCoverage(); });
+      }
+
+      if (rcaMapDistricts.length) {
+        renderSingleDistrictMap("map-rca", "map-tooltip-rca", rca.district_map,
+          function (entry) { return entry.children_assessed; },
+          function (label, entry) { return label + "<br>Children assessed: " + fmtNum(entry.children_assessed) + "<br>RCA visits: " + fmtNum(entry.rca_visits) + "<br>Zero-dose: " + fmtNum(entry.zero_dose_count); },
+          function (name, entry) { return name + ": " + fmtNum(entry.children_assessed); });
       }
 
       var areaTypeCounts = {};
@@ -2478,10 +2525,15 @@
       '</div>' +
       '<div class="card"><h2>Cold Chain &amp; Vaccine Supply</h2><div class="grid kpi-row">' + coldChainKpis + '</div>' +
         editableInsight(coldChainInsightId, coldChainAutoInsight) +
+        '<div class="grid two-col" style="margin-top:14px;">' +
+          '<div><h3>Site-Type Distribution</h3><div class="chart-wrap"><canvas id="chart-sup-sitetype"></canvas></div></div>' +
+          '<div><h3>Cold Chain Readiness by Site Type</h3><div class="chart-wrap"><canvas id="chart-sup-sitetype-coldchain"></canvas></div></div>' +
+        '</div>' +
+        '<p class="sub" style="margin-top:6px;">Site-type categories are whatever the source data actually contains for this upload, not a fixed list.</p>' +
       '</div>';
 
     return { html: html, build: function () {
-      destroyChart("supCompliance");
+      destroyChart("supCompliance"); destroyChart("supSiteType"); destroyChart("supSiteTypeColdChain");
 
       charts.supCompliance = new Chart(document.getElementById("chart-sup-compliance"), {
         type: "bar",
@@ -2492,6 +2544,26 @@
             labelText: compItems.map(function (r) { return countPct(r.yes, r.answered); }) }]
         },
         options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "20%" } } }
+      });
+
+      var siteTypeDoughnut = doughnutData(sup.site_type_breakdown);
+      charts.supSiteType = new Chart(document.getElementById("chart-sup-sitetype"), {
+        type: "doughnut",
+        data: { labels: siteTypeDoughnut.labels, datasets: [{ data: siteTypeDoughnut.values, backgroundColor: siteTypeDoughnut.colors }] },
+        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+      });
+
+      var stc = sup.site_type_cold_chain;
+      charts.supSiteTypeColdChain = new Chart(document.getElementById("chart-sup-sitetype-coldchain"), {
+        type: "bar",
+        data: {
+          labels: stc.map(function (r) { return r.site_type; }),
+          datasets: [
+            { label: "Backup power available", data: stc.map(function (r) { return r.backup_power_available.pct; }), backgroundColor: "#0f766e" },
+            { label: "Stockout in last 3 months", data: stc.map(function (r) { return r.stockout_last_3_months.pct; }), backgroundColor: "#c5221f" },
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } }, scales: { y: { max: 100, ticks: { callback: function (v) { return v + "%"; } } } } }
       });
     } };
   }
@@ -2525,20 +2597,128 @@
     '</div>';
   }
 
-  function renderSupervision() {
-    var el = document.getElementById("tab-supervision");
-    var m = DATA.monitoring;
-    if (m.rca.status === "awaiting_data" && m.supervisory.status === "awaiting_data") {
-      el.innerHTML = '<div class="card"><h2>Monitoring and Supervision</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
-        'No RCA or Supervisory Checklist data has been received yet. This tab will populate automatically once either file is uploaded.</div></div>';
-      return;
+  // Structured "Analyze Monitor Remarks" panel. Deliberately NOT a live AI/
+  // API call (no network access from a fully offline static file, and the
+  // brief explicitly said to skip any API and pick the simplest approach) --
+  // this is a deterministic keyword-rule scan over the exact same RCA
+  // Comments / Supervisory Remarks fields as the "Key Remarks from Monitors"
+  // table above, triggered on demand by a button rather than run
+  // automatically, per the brief. It only ever reports text and
+  // district/UC/date values that are already present in the source rows --
+  // never a generated or inferred fact.
+  var POSITIVE_REMARK_TERMS = ["good", "satisfactory", "adequate", "available", "functional", "well maintained",
+    "well-maintained", "compliant", "cooperative", "trained", "no issue", "no gap", "no shortage", "sufficient",
+    "excellent", "appreciat", "improved", "on track", "as per plan", "in order"];
+  var ISSUE_REMARK_TERMS = ["shortage", "stockout", "stock out", "not available", "unavailable", "lack of", "lacking",
+    "poor", "issue", "problem", "delay", "damaged", "non-functional", "not functional", "refus", "unaware",
+    "hesitan", "resistance", "gap", "missing", "low turnout", "not trained", "untrained", "not working",
+    "concern", "complaint", "insufficient", "no vaccine", "no fuel", "breakdown", "not maintained"];
+
+  function collectMonitorRemarks(m) {
+    var rcaRemarks = (m.rca.status === "ok" ? m.rca.monitor_remarks : []).map(function (r) {
+      return { source: "RCA", field: "Comments", district: r.district, uc: r.uc, date: r.visit_date, remark: r.remark };
+    });
+    var supRemarks = (m.supervisory.status === "ok" ? m.supervisory.monitor_remarks : []).map(function (r) {
+      return { source: "Supervisory Checklist", field: r.source_field, district: r.district, uc: r.uc, date: r.visit_date, remark: r.remark };
+    });
+    return rcaRemarks.concat(supRemarks);
+  }
+
+  // A short negation window immediately before a matched issue term (e.g.
+  // "no any issue found", "not a problem") flips it to non-issue, rather
+  // than a bare substring match miscategorizing an explicitly-negated
+  // remark as a problem.
+  var NEGATION_WORDS = ["no", "not", "none", "never", "zero", "without"];
+  function isNegatedBefore(text, idx) {
+    var before = text.slice(Math.max(0, idx - 24), idx);
+    return NEGATION_WORDS.some(function (w) {
+      return new RegExp("\\b" + w + "\\b\\s*(\\w+\\s+){0,2}$").test(before);
+    });
+  }
+  function hasIssueTerm(text) {
+    return ISSUE_REMARK_TERMS.some(function (t) {
+      var idx = text.indexOf(t);
+      return idx !== -1 && !isNegatedBefore(text, idx);
+    });
+  }
+
+  function categorizeMonitorRemarks(all) {
+    var insights = [], issues = [], other = [];
+    all.forEach(function (r) {
+      var text = String(r.remark || "").toLowerCase();
+      var isIssue = hasIssueTerm(text);
+      var isPositive = !isIssue && POSITIVE_REMARK_TERMS.some(function (t) { return text.indexOf(t) !== -1; });
+      if (isIssue) issues.push(r);
+      else if (isPositive) insights.push(r);
+      else other.push(r);
+    });
+
+    var ucMap = {};
+    all.forEach(function (r) {
+      var key = (r.district || "Unknown district") + " / " + (r.uc || "Unknown UC");
+      if (!ucMap[key]) ucMap[key] = { district: r.district || "Unknown district", uc: r.uc || "Unknown UC", source: r.source, issueCount: 0, insightCount: 0, remarkCount: 0 };
+      ucMap[key].remarkCount++;
+    });
+    issues.forEach(function (r) { var key = (r.district || "Unknown district") + " / " + (r.uc || "Unknown UC"); if (ucMap[key]) ucMap[key].issueCount++; });
+    insights.forEach(function (r) { var key = (r.district || "Unknown district") + " / " + (r.uc || "Unknown UC"); if (ucMap[key]) ucMap[key].insightCount++; });
+    var ucDetails = Object.keys(ucMap).map(function (k) { return ucMap[k]; })
+      .sort(function (a, b) { return b.issueCount - a.issueCount || b.remarkCount - a.remarkCount; });
+
+    var followUp = ucDetails.filter(function (u) { return u.issueCount > 0; })
+      .map(function (u) { return u.district + " -- " + u.uc + ": field follow-up recommended (" + nounFor(u.issueCount, "issue-flagged remark") + ")."; });
+
+    return { insights: insights, issues: issues, other: other, ucDetails: ucDetails, followUp: followUp };
+  }
+
+  function monitorRemarksAnalysisHtml(m) {
+    var all = collectMonitorRemarks(m);
+    return '<div class="card"><h2>🔎 Analyze Monitor Remarks</h2>' +
+      '<p class="sub">On-demand, rule-based scan of RCA and Supervisory Checklist remarks -- groups findings into Key Insights, Key Issues, and UC/Location Details. ' +
+      'Only analyzes text and district/UC values already present in the uploaded data; nothing is generated or inferred beyond what the remarks say.</p>' +
+      (all.length
+        ? '<div class="controls-row"><button class="reset-btn" id="analyze-remarks-btn">Analyze Monitor Remarks</button></div><div id="monitor-remarks-analysis-result" style="margin-top:12px;"></div>'
+        : '<p class="sub">No monitor remarks available for AI analysis.</p>') +
+    '</div>';
+  }
+
+  function monitorRemarksAnalysisResultHtml(m) {
+    var all = collectMonitorRemarks(m);
+    if (!all.length) {
+      return '<p class="sub">No monitor remarks available for AI analysis.</p>';
     }
-    var rcaResult = renderRcaSection(m.rca);
-    var supResult = renderSupervisorySection(m.supervisory);
-    el.innerHTML = rcaResult.html + supResult.html + monitorRemarksHtml(m);
-    wireEditableInsights(el);
-    rcaResult.build();
-    supResult.build();
+    var result = categorizeMonitorRemarks(all);
+
+    function remarkList(items) {
+      if (!items.length) return '<p class="sub">None found in the current remarks.</p>';
+      return '<ul class="analysis-list">' + items.map(function (r) {
+        return '<li><strong>' + escHtml(r.district || "Unknown district") + ' / ' + escHtml(r.uc || "Unknown UC") + '</strong> (' + escHtml(r.source) +
+          (r.date ? ", " + escHtml(String(r.date).slice(0, 10)) : "") + '): ' + escHtml(r.remark) + '</li>';
+      }).join("") + '</ul>';
+    }
+
+    var ucRows = result.ucDetails.map(function (u) {
+      return '<tr><td>' + escHtml(u.district) + '</td><td>' + escHtml(u.uc) + '</td><td>' + fmtNum(u.remarkCount) + '</td>' +
+        '<td>' + fmtNum(u.insightCount) + '</td><td>' + fmtNum(u.issueCount) + '</td></tr>';
+    }).join("");
+
+    return '<div class="anomaly-box good-box"><h3>Key Insights (' + result.insights.length + ')</h3>' + remarkList(result.insights) + '</div>' +
+      '<div class="anomaly-box"><h3>Key Issues (' + result.issues.length + ')</h3>' + remarkList(result.issues) + '</div>' +
+      '<div><h3>UC / Location Details</h3>' +
+      '<div class="table-scroll"><table><thead><tr><th>District</th><th>UC</th><th>Total remarks</th><th>Insights</th><th>Issues</th></tr></thead><tbody>' + ucRows + '</tbody></table></div></div>' +
+      '<div><h3>Recommended Follow-up</h3>' +
+      (result.followUp.length ? '<ul class="analysis-list">' + result.followUp.map(function (s) { return '<li>' + escHtml(s) + '</li>'; }).join("") + '</ul>'
+        : '<p class="sub">No specific follow-up derived from the current remarks (no issue-flagged entries found).</p>') +
+      '</div>' +
+      (result.other.length ? '<p class="sub" style="margin-top:8px;">' + nounFor(result.other.length, "remark") + " did not match a positive or issue keyword pattern and " +
+        (result.other.length === 1 ? "is" : "are") + " listed as-is in \"Key Remarks from Monitors\" above." + '</p>' : "");
+  }
+
+  function wireMonitorRemarksAnalysis(el, m) {
+    var btn = el.querySelector("#analyze-remarks-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      document.getElementById("monitor-remarks-analysis-result").innerHTML = monitorRemarksAnalysisResultHtml(m);
+    });
   }
 
   // ================= WHO SUPPORTED ACTIVITIES =================
@@ -2848,7 +3028,6 @@
     if (name === "overview") renderOverview();
     else if (name === "coverage") renderCoverage();
     else if (name === "surveillance") renderSurveillance();
-    else if (name === "supervision") renderSupervision();
     else if (name === "who") renderWhoActivities();
     else if (name === "quality") renderQuality();
   }

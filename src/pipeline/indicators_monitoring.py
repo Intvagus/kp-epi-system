@@ -384,6 +384,26 @@ def supervisory_monitor_remarks(df: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def supervisory_site_type_cold_chain(df: pd.DataFrame) -> dict:
+    """Backup-power and stockout rates broken down by the source's own
+    site_type categories (whatever values are actually present -- never a
+    hardcoded Fixed/Outreach/Mobile list), a genuine per-row cross-tab (both
+    fields live on the same visit row as site_type), not a derived or
+    estimated figure. A site type with zero answered rows for a given field
+    reports pct=None rather than a fabricated 0%."""
+    rows = []
+    for site_type, g in df.groupby("site_type", dropna=False):
+        label = site_type if pd.notna(site_type) and str(site_type).strip() else "Not recorded"
+        rows.append({
+            "site_type": label,
+            "visits": int(len(g)),
+            "backup_power_available": _yes_rate(g["backup_power_available"]),
+            "stockout_last_3_months": _yes_rate(g["stockout_last_3_months"]),
+        })
+    rows.sort(key=lambda r: r["visits"], reverse=True)
+    return rows
+
+
 def supervisory_fixed_site_open_rate(df: pd.DataFrame) -> dict:
     """Denominator is fixed-site visits only -- outreach/mobile visits don't
     have a 'site open' concept."""
