@@ -221,6 +221,7 @@ def run_vpd(raw_dir: Path | None = None, processed_dir: Path | None = None,
             "total_cases": len(pertussis),
             "district_breakdown": ind.pertussis_district_counts(pertussis).to_dict(orient="records"),
             "weekly_trend": ind.weekly_case_counts(pertussis).to_dict(orient="records"),
+            "district_map": ind.pertussis_district_map(pertussis),
         },
         "nnt": {
             "ytd": {k: v for k, v in ind.nnt_summary(nnt).items() if k != "by_district"},

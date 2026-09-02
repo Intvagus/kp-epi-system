@@ -176,6 +176,22 @@ def pertussis_district_counts(df: pd.DataFrame) -> pd.DataFrame:
     return df.groupby("district").size().reset_index(name="case_count")
 
 
+def pertussis_district_map(df: pd.DataFrame) -> dict:
+    """Per-boundary-polygon pertussis case count for a district spot map,
+    same DISTRICT_TO_BOUNDARY combining/summing rule and real-0 convention as
+    rca_district_map (see its docstring)."""
+    unmapped = sorted(set(df["district"].dropna().unique()) - set(DISTRICT_TO_BOUNDARY))
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = df[df["district"].isin(component_districts)]
+        by_boundary[boundary_name] = {
+            "component_districts": sorted(rows["district"].unique().tolist()) or component_districts,
+            "case_count": int(len(rows)),
+        }
+    return {"unmapped_districts": unmapped, "features": by_boundary}
+
+
 def msl_weekly_trend(df: pd.DataFrame) -> pd.DataFrame:
     """Per-epi-week suspected / measles-confirmed / rubella-confirmed /
     discarded counts, sorted by week. The single source for the dashboard's

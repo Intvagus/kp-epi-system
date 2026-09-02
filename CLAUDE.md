@@ -190,6 +190,69 @@
      non-blank comments are mostly brief acknowledgements ("good work",
      "....") rather than substantive field observations, noted explicitly
      in the card's own caveat text rather than presented as if analyzed.
+- **Second refinement round** (more client-annotated screenshots, done):
+  - **Pertussis**: same "(YTD)" removal and district spot map as Diphtheria/
+    NNT above. The KPI is relabeled "Suspected Pertussis" rather than just
+    "Cases" -- the Pertussis line list has no lab-confirmation/classification
+    field at all (confirmed by inspection, unlike Diphtheria/MSL), so every
+    row genuinely is a suspected case with nothing to distinguish it from
+    "confirmed" -- this is a terminology correction, not new data.
+  - **Coverage Executive Overview**: "Antigen Requiring Attention" (and
+    "Best Performing Antigen") no longer considers FIC a candidate --
+    `coverage_summary.py::_best_worst_antigen` now excludes it specifically,
+    since FIC is a composite indicator built from every other antigen, not a
+    single vaccine dose, so ranking it alongside BCG/Penta1/etc. wasn't
+    apples-to-apples (FIC is untouched everywhere else `DISTRICT_ANTIGENS`
+    is used -- the antigen chart, target-gap dropdown, trend, maps -- since
+    it's a legitimately tracked metric there). Added 4 new KPI cards, "UCs
+    in Category 1-4", summed straight from the District sheet's own
+    `cat1_count`..`cat4_count` columns (never averaged, never derived from
+    the separate UC-level Category field) -- `build_executive_summary`'s new
+    `uc_categorization` key. Real cross-sheet data-quality finding surfaced
+    by this addition, not smoothed over: the District sheet's own summed
+    Total UCs (1,305) doesn't match the UC Wise Analysis sheet's actual row
+    count (1,376) -- both are genuine "trust the sheet" values from two
+    different columns in the same workbook, not reconciled against each
+    other, same as the Indicator Sheet's separate district total.
+  - **Detailed District/Tehsil/UC Explorer**: the "UCs" column (total UC
+    count) at District/Tehsil level is replaced with "LPUCs (Cat 3+4)" --
+    low-performing UC count, computed client-side as `cat3_count +
+    cat4_count` per row (both already-ingested raw fields, no new backend
+    work needed). The "Category" column header is now level-specific
+    ("District Category" / "Tehsil Category" / "UC Category") rather than a
+    bare "Category" that could be confused between a district's own rollup
+    category and a UC's own category shown further down the drill-down.
+    The reported "dropdown not working" bug could not be reproduced --
+    tested the search box, column sorting, and click-to-drill-down through
+    District → Tehsil → UC under multiple sequences (after switching Monthly/
+    Cumulative, after searching, after sorting, clicking the row vs. a cell)
+    with zero errors every time; there is no `<select>` element in this
+    table at all (only a search box and clickable rows) -- flagged back to
+    the client rather than guessing at a fix for a bug that couldn't be
+    observed.
+  - **Weekly Trend** (VPD Surveillance): retitled "Weekly Measles Cases
+    Trend of 2026" (client's handwritten title, typo corrected) and the
+    description no longer says "and discarded" (client struck it through)
+    -- confirmed with the client that the Discarded series itself should
+    stay in the chart, only the wording changed.
+  - **Antigen-wise Coverage Analysis reorder + MR2 -- declined, explained
+    in-product**: the client asked to add MR2 "even if not given in the
+    source file" and to reorder antigens into a fixed vaccination-schedule
+    sequence including OPV/PCV/Rota, which aren't in this chart either.
+    Neither was done: MR2 genuinely does not exist anywhere in the Coverage
+    workbook (confirmed by inspecting every sheet's header row), and
+    OPV/PCV/Rota exist only as UC-level percentages with no target (already
+    covered honestly in section 2b, "Additional Antigens (Union Council
+    Level Only)"), so including any of them here would mean fabricating a
+    number -- against this project's foundational rule, restated in
+    `coverage_summary.py`'s own module docstring from an earlier session.
+    Separately, this chart is deliberately sorted by coverage performance
+    (strongest to weakest, so the antigens needing attention surface first),
+    not by vaccination-schedule sequence -- switching to a fixed order would
+    change what the section is for, not just its wording, so that wasn't
+    done unilaterally either. The section's own description text was
+    expanded to state both of these facts explicitly, rather than leaving
+    the gap unexplained for the next person reading the dashboard.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

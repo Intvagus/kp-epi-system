@@ -73,8 +73,14 @@ def _district_rows(district_all: pd.DataFrame, period_id: str) -> pd.DataFrame:
 
 
 def _best_worst_antigen(province_row: pd.Series) -> dict:
+    # FIC ("Fully Immunized Child") is a composite indicator built from every
+    # other antigen, not a single vaccine dose -- ranking it alongside real
+    # antigens like BCG or Penta1 isn't apples-to-apples, so it's excluded
+    # from best/worst-antigen selection specifically (it still appears
+    # correctly everywhere else DISTRICT_ANTIGENS is used, e.g. the Antigen-
+    # wise Coverage Analysis chart, since it IS a real tracked metric there).
     pcts = {label: province_row[f"{key}_pct_reported"] for key, label in DISTRICT_ANTIGENS
-            if pd.notna(province_row.get(f"{key}_pct_reported"))}
+            if key != "fic" and pd.notna(province_row.get(f"{key}_pct_reported"))}
     if not pcts:
         return {"best": None, "worst": None}
     best = max(pcts, key=pcts.get)
@@ -132,6 +138,18 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
     district_extremes = _best_worst_district(districts_current)
     district_compliance = _compliance_counts(districts_current[f"{SUMMARY_ANTIGEN}_pct_reported"])
 
+    # UC Categorization: summed straight from the District sheet's own
+    # Category-1..4 UC counts (never averaged, never recomputed from the
+    # UC-level Category field -- same "trust the sheet, sum raw counts"
+    # rule as every other province-wide aggregate in this module).
+    uc_categorization = {
+        "category_1": int(districts_current["cat1_count"].sum(skipna=True)),
+        "category_2": int(districts_current["cat2_count"].sum(skipna=True)),
+        "category_3": int(districts_current["cat3_count"].sum(skipna=True)),
+        "category_4": int(districts_current["cat4_count"].sum(skipna=True)),
+        "total_ucs": int(districts_current["total_ucs"].sum(skipna=True)),
+    }
+
     fic_pct = prov["fic_pct_reported"]
     insight_parts = []
     if pd.notna(fic_pct):
@@ -178,6 +196,7 @@ def build_executive_summary(district_all: pd.DataFrame, uc_all: pd.DataFrame, pe
         "best_antigen": antigen_extremes["best"], "worst_antigen": antigen_extremes["worst"],
         "best_district": district_extremes["best"], "worst_district": district_extremes["worst"],
         "district_compliance": district_compliance,
+        "uc_categorization": uc_categorization,
         "insight": " ".join(insight_parts) or "Not enough valid data this period to generate an insight.",
     }
 

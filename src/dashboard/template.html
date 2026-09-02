@@ -535,17 +535,24 @@
   }
 
   // ================= COVERAGE =================
+  // "category" column header is level-specific (District Category / Tehsil
+  // Category / UC Category), never a bare "Category" -- distinguishes a
+  // district's/tehsil's own rollup category from a UC's own category, which
+  // are different things shown in the same-named source column at each level.
+  var COVERAGE_CATEGORY_LABEL = { district: "District Category", tehsil: "Tehsil Category", uc: "UC Category" };
   var COVERAGE_COLS = {
     district: [["district", "District"], ["bcg_pct_reported", "BCG%"], ["penta1_pct_reported", "Penta1%"],
       ["penta3_pct_reported", "Penta3%"], ["mr1_pct_reported", "MR1%"], ["fic_pct_reported", "FIC%"],
-      ["dropout_pct_reported", "Dropout%"], ["category", "Category"], ["total_ucs", "UCs"]],
+      ["dropout_pct_reported", "Dropout%"], ["category", COVERAGE_CATEGORY_LABEL.district],
+      ["lpuc_count", "LPUCs (Cat 3+4)"]],
     tehsil: [["tehsil", "Tehsil"], ["bcg_pct_reported", "BCG%"], ["penta1_pct_reported", "Penta1%"],
       ["penta3_pct_reported", "Penta3%"], ["mr1_pct_reported", "MR1%"], ["fic_pct_reported", "FIC%"],
-      ["dropout_pct_reported", "Dropout%"], ["category", "Category"], ["total_ucs", "UCs"]],
+      ["dropout_pct_reported", "Dropout%"], ["category", COVERAGE_CATEGORY_LABEL.tehsil],
+      ["lpuc_count", "LPUCs (Cat 3+4)"]],
     uc: [["uc_name", "Union Council"], ["bcg_pct", "BCG%"], ["penta1_pct", "Penta1%"],
       ["penta3_pct", "Penta3%"], ["opv3_pct", "OPV3%"], ["pcv3_pct", "PCV3%"],
       ["mr1_pct", "MR1%"], ["fic_pct", "FIC%"], ["dropout_pct", "Dropout%"],
-      ["category", "Category"], ["flags", "Flags"]],
+      ["category", COVERAGE_CATEGORY_LABEL.uc], ["flags", "Flags"]],
   };
   var RAG_COLS = { bcg_pct: 1, bcg_pct_reported: 1, penta1_pct: 1, penta1_pct_reported: 1, penta2_pct_reported: 1,
     opv3_pct: 1, pcv3_pct: 1,
@@ -1098,6 +1105,10 @@
         exe.district_compliance.total_with_data ? "of " + exe.district_compliance.total_with_data + " districts (FIC &ge; " + CFG.coverage_good + "%)" : "", "good"),
       kpiCard("Districts Requiring Intervention", exe.district_compliance.total_with_data ? (exe.district_compliance.warning + exe.district_compliance.poor) : "—",
         exe.district_compliance.total_with_data ? "of " + exe.district_compliance.total_with_data + " districts (FIC &lt; " + CFG.coverage_good + "%)" : "", "poor"),
+      kpiCard("UCs in Category 1", fmtNum(exe.uc_categorization.category_1), "of " + fmtNum(exe.uc_categorization.total_ucs) + " total UCs", "good"),
+      kpiCard("UCs in Category 2", fmtNum(exe.uc_categorization.category_2), "of " + fmtNum(exe.uc_categorization.total_ucs) + " total UCs"),
+      kpiCard("UCs in Category 3", fmtNum(exe.uc_categorization.category_3), "of " + fmtNum(exe.uc_categorization.total_ucs) + " total UCs", "warning"),
+      kpiCard("UCs in Category 4", fmtNum(exe.uc_categorization.category_4), "of " + fmtNum(exe.uc_categorization.total_ucs) + " total UCs", "poor"),
     ];
     return '<div class="card"><h2>📋 1. Coverage Summary &mdash; Executive Overview</h2>' +
       '<div class="grid kpi-row">' + kpis.join("") + '</div>' +
@@ -1111,9 +1122,12 @@
   function antigenAnalysisHtml(cs, kind) {
     if (cs.status !== "ok" || !cs.antigen_analysis.length) return "";
     return '<div class="card"><h2>💉 2. Antigen-wise Coverage Analysis</h2>' +
-      '<p class="section-note">Every antigen with a real target and vaccinated count in the source file (District/Tehsil level), ranked strongest to weakest. ' +
+      '<p class="section-note">Every antigen with a real target and vaccinated count in the source file (District/Tehsil level), ranked strongest to weakest ' +
+        '(deliberately performance-ranked, not vaccination-schedule order, so the antigens needing attention surface first). ' +
         '<span style="color:#1e8e3e;font-weight:700;">Green</span> = meets the ' + CFG.coverage_good + '% target coverage; ' +
-        '<span style="color:#c5221f;font-weight:700;">red</span> = below it.</p>' +
+        '<span style="color:#c5221f;font-weight:700;">red</span> = below it. ' +
+        'OPV, PCV, Rota, and MR2 are not shown here (or anywhere district-level) -- the source file has no raw count or target for them at ' +
+        'District/Tehsil level, only a per-Union-Council percentage with no target; see section 2b below for those, at the level the data actually supports.</p>' +
       '<div class="chart-wrap tall"><canvas id="chart-antigen-analysis"></canvas></div>' +
       editableInsight("antigen-" + kind, cs.antigen_insight) +
     '</div>';
@@ -1459,6 +1473,7 @@
       var cells = cols.map(function (c) {
         var key = c[0];
         if (key === "flags") return "<td>" + flagBadges(r) + "</td>";
+        if (key === "lpuc_count") return "<td>" + fmtNum((r.cat3_count || 0) + (r.cat4_count || 0)) + "</td>";
         var v = r[key];
         if (RAG_COLS[key]) {
           var rag = RAG_COLS[key] === "dropout" ? dropoutRag(v) : coverageRag(v);
@@ -1733,6 +1748,14 @@
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
     var pertTotalFromDistricts = pert.district_breakdown.reduce(function (s, r) { return s + r.case_count; }, 0);
     var pertMissingDistrict = pert.total_cases - pertTotalFromDistricts;
+    var pertMapDistricts = pert.district_map ? Object.keys(pert.district_map.features) : [];
+    var pertMapTop = pertMapDistricts.reduce(function (best, name) {
+      return (!best || pert.district_map.features[name].case_count > pert.district_map.features[best].case_count) ? name : best;
+    }, null);
+    var pertMapAutoInsight = pertMapTop && pert.district_map.features[pertMapTop].case_count > 0
+      ? pertMapTop + " has the most suspected pertussis cases (" + fmtNum(pert.district_map.features[pertMapTop].case_count) + ")." +
+        (pert.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + pert.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No district-level pertussis case data available to map.";
 
     var nntKpis = [
       diseaseKpiCard("Cases", fmtNum(nnt.ytd.case_count), ""),
@@ -1864,8 +1887,8 @@
         measlesIncidenceMapHtml(ki) +
       '</div>' +
 
-      '<div class="card"><h2>Weekly Trend</h2>' +
-        '<p class="sub">Confirmed measles, confirmed rubella, and discarded suspected cases per epi week.</p>' +
+      '<div class="card"><h2>Weekly Measles Cases Trend of 2026</h2>' +
+        '<p class="sub">Confirmed measles and confirmed rubella cases per epi week (discarded suspected cases also shown in the chart itself).</p>' +
         '<div class="chart-wrap tall"><canvas id="chart-msl-weekly-trend"></canvas></div>' +
         editableInsight("vpd-msl-weekly-trend-" + v.latest_epi_week, weeklyTrendAutoInsight) +
       '</div>' +
@@ -1933,10 +1956,14 @@
         '<div class="chart-wrap tall"><canvas id="chart-diph-age-dose"></canvas></div>' +
         editableInsight("vpd-diph-agedose-" + v.latest_epi_week, diphAgeDoseAutoInsight) +
       '</div>' +
-      '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (YTD)</h2>' +
-        '<div class="grid kpi-row">' + [diseaseKpiCard("Cases (YTD)", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis</h2>' +
+        '<div class="grid kpi-row">' + [diseaseKpiCard("Suspected Pertussis", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div>' +
       '</div>' +
+      (pertMapDistricts.length ? '<div class="card"><h2>🗺️ Pertussis Cases by District</h2>' +
+        singleDistrictMapHtml("map-pert", "map-tooltip-pert", "Pertussis cases by district", "District boundaries: user-provided reference map.") +
+        editableInsight("vpd-pert-map-" + v.latest_epi_week, pertMapAutoInsight) +
+      '</div>' : "") +
       '<div class="card"><h2><span class="disease-tag" style="background:var(--nnt);"></span>Neonatal Tetanus</h2>' +
         '<div class="grid kpi-row">' + nntKpis + '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + nntRowsHtml + '</tbody></table></div>' +
@@ -1971,6 +1998,12 @@
       renderSingleDistrictMap("map-nnt", "map-tooltip-nnt", nnt.district_map,
         function (entry) { return entry.case_count; },
         function (label, entry) { return label + "<br>NNT cases: " + fmtNum(entry.case_count); },
+        function (name, entry) { return name + ": " + fmtNum(entry.case_count); });
+    }
+    if (pertMapDistricts.length) {
+      renderSingleDistrictMap("map-pert", "map-tooltip-pert", pert.district_map,
+        function (entry) { return entry.case_count; },
+        function (label, entry) { return label + "<br>Suspected pertussis cases: " + fmtNum(entry.case_count); },
         function (name, entry) { return name + ": " + fmtNum(entry.case_count); });
     }
 
