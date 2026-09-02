@@ -18,6 +18,7 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 
+from .admin_activities import ADMIN_ACTIVITIES_SHEET, TASK_COLUMN_HEADER as ADMIN_ACTIVITIES_HEADER
 from .config import SHEET_NAMES, VPD_SHEET_NAMES
 from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
 from .who_activities import REQUIRED_SHEETS as WHO_ACTIVITIES_SIGNATURE
@@ -35,7 +36,7 @@ MIN_MATCHING_SHEETS = 2
 
 @dataclass
 class DetectionResult:
-    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "who_activities" | "unknown" | "empty" | "unreadable"
+    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "who_activities" | "admin_activities" | "unknown" | "empty" | "unreadable"
     matched_sheets: list = field(default_factory=list)
     all_sheets: list = field(default_factory=list)
     message: str = ""
@@ -62,9 +63,25 @@ def _is_indicator_sheet_workbook(path: Path) -> bool:
     return False
 
 
+def _is_admin_activities_workbook(path: Path) -> bool:
+    """Detected by sheet name ("Admin Activities") plus the task-column
+    header text in A1 -- same "content, never filename" principle as every
+    other domain, and the header check guards against an unrelated workbook
+    that happens to reuse the sheet name."""
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return False
+    if ADMIN_ACTIVITIES_SHEET not in wb.sheetnames:
+        return False
+    header = wb[ADMIN_ACTIVITIES_SHEET].cell(row=1, column=1).value
+    return bool(header) and str(header).strip() == ADMIN_ACTIVITIES_HEADER
+
+
 def detect_workbook_type(path: Path) -> DetectionResult:
     """Classify one .xlsx by its actual sheet names (Coverage/VPD) or, for
-    the differently-shaped Indicator Sheet workbook, its A1 title marker."""
+    the differently-shaped Indicator Sheet/Admin Activities workbooks, a
+    content marker (A1 title / sheet name + header)."""
     try:
         sheets = _sheet_names(path)
     except Exception as e:
@@ -86,6 +103,12 @@ def detect_workbook_type(path: Path) -> DetectionResult:
         return DetectionResult(
             "who_activities", who_matches, sheets,
             f"Recognized as a WHO Supported Activities workbook (both {', '.join(sorted(WHO_ACTIVITIES_SIGNATURE))!r}-style sheets found)."
+        )
+
+    if not coverage_matches and not vpd_matches and _is_admin_activities_workbook(path):
+        return DetectionResult(
+            "admin_activities", [], sheets,
+            f"Recognized as an Admin Activities checklist workbook (sheet name and header marker found)."
         )
 
     if not coverage_matches and not vpd_matches and _is_indicator_sheet_workbook(path):

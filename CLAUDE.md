@@ -403,6 +403,65 @@
      Remarks card as their own slides). 149/151 tests passing (the same 2
      pre-existing sandbox-only Playwright-bulletin-PDF failures as every
      prior round, unrelated to this change).
+- **Part 1e (Admin Activities)**: done, but with a different data shape than
+  every other domain -- worth reading in full before touching this code.
+  The source file received (`data/raw/Admin_Activities_Checklist.xlsx`, 1
+  sheet, 21 rows x 6 columns) is a **blank per-officer administrative
+  compliance checklist template**, not a case-level or activity-log
+  dataset: 20 fixed administrative responsibilities (Logbook Submission,
+  Monthly Report Submission/Compliance, DSO Mobility Claims, Financial/
+  Payment Documentation, Procurement Requests, Programme Section Support,
+  etc.) x 4 officer columns (`Officer 1`..`Officer 4`), plus a `Remarks /
+  Evidence` column. Confirmed by direct cell-level inspection (values,
+  fill colors, comments -- nothing hidden): every one of the 80 officer
+  cells literally contains the instructional string `"Yes/No/NA"` (telling
+  whoever fills the sheet what to type), not a real answer, and every
+  `Remarks / Evidence` cell holds a fixed descriptor of what evidence each
+  task expects (e.g. `"Monthly"`, `"Quality & completeness"`), not an
+  actual per-period remark. There is no date, district, UC, personnel name,
+  agency, or activity-type field anywhere in the file. First reported to
+  the user as a likely wrong upload; the user confirmed via two
+  `AskUserQuestion` rounds that this genuinely is the source file, and
+  explicitly chose to treat the Admin Activities tab as a **live, fillable
+  checklist inside the dashboard** rather than a chart-driven analytics tab
+  (there being no completed data to chart) -- the "Recommended" option
+  offered, over a static read-only reference table or waiting for a
+  different file.
+  `src/pipeline/admin_activities.py` reads only the checklist's real
+  STRUCTURE (task names, the officer column labels from the header row --
+  never hardcoded to exactly 4 -- and each task's expected-evidence
+  descriptor); `_normalize_officer_cell()` distinguishes the placeholder
+  phrase (however spaced/cased) from a genuine single-word answer, so a
+  future version of this file with real pre-filled Yes/No/N-A answers would
+  be read as real starting data rather than ignored, with zero code change
+  needed. Detected content-based (`detect.py::_is_admin_activities_workbook`,
+  sheet name + A1 header text), same "content, never filename" principle as
+  every other domain; wired into `run_weekly.py` and `webapp/app.py`
+  identically to `who_activities.py`'s pattern.
+  On the dashboard (`template.html::renderAdminActivities()`, tab
+  positioned between WHO Supported Activities and Data Quality per the
+  client's explicit nav-order instruction): 5 KPI cards (Total Tasks
+  Tracked, Officers Tracked, Items Marked, Compliance Rate, Not Yet Marked),
+  a status-distribution doughnut (Yes/No/N-A/Not yet marked), a By-Officer
+  compliance table, and the full 20 x 4 checklist as real `<select>`
+  dropdowns (Yes/No/N-A) plus a "Reset checklist" button and an editable
+  summary insight box -- every KPI/chart is computed live, client-side, from
+  whatever has actually been selected. Selections are saved to this
+  browser's `localStorage` (`epi-admin-status:<taskIndex>:<officerLabel>`),
+  the same per-browser-only pattern every `editableInsight` box on this
+  dashboard already uses, and persist across a page reload. Deliberately
+  has no time trend, geographic map, or activity-type chart -- none of
+  those fields exist in the source, so none are fabricated; the tab's own
+  description text says so explicitly rather than leaving the gap
+  unexplained. KPIs correctly read "0 marked / 80 not yet marked" and a
+  "—" compliance rate on first load, which is the honest starting state,
+  not a defect. 20 new tests in `tests/test_admin_activities.py`, including
+  one asserting every source officer cell normalizes to "unanswered" (never
+  a fabricated Yes/No/N-A) and a parametrized table for
+  `_normalize_officer_cell()`'s placeholder-vs-real-answer logic. Verified
+  with a Playwright sweep (nav order, zero console errors across all 6
+  tabs, live KPI recompute on dropdown change, localStorage persistence
+  across reload) and a PPT export check (5 slides, none empty).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
@@ -582,6 +641,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
 | `data/raw/WHO_EPI_May_2024_Highlights_Dashboard.xlsx` | 3 sheets (`Sheet1`, `Evidence & Findings`, `WHO Highlights Dashboard`) | Single month, May 2024, Malakand duty station (6 assigned districts) | See Part 1d above (who_activities.py). 3 sheets are 3 views of one report, not independent data. |
+| `data/raw/Admin_Activities_Checklist.xlsx` | 1 sheet (`Admin Activities`), 20 task rows x 4 officer columns | No period -- a blank compliance checklist template, not a dated record | See Part 1e above (admin_activities.py). User-confirmed genuine source; built as a live, browser-fillable checklist, not a chart. |
 
 AFP (within VPD) has **not** been provided yet — see "Confirmed VPD decisions" below.
 

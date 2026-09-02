@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.bulletin.build import build as build_bulletin
 from src.dashboard.build import build as build_dashboard
+from src.pipeline.admin_activities import run_admin_activities
 from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
 from src.pipeline.run import run as run_pipeline
 from src.pipeline.run_monitoring import run_monitoring
@@ -24,6 +25,7 @@ if __name__ == "__main__":
     run_monitoring()
     run_indicator_sheet()
     run_who_activities()
+    run_admin_activities()
     build_dashboard()
     if vpd_summary is not None:
         build_bulletin()

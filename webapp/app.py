@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.bulletin.build import build as build_bulletin
 from src.dashboard.build import build as build_dashboard
+from src.pipeline.admin_activities import run_admin_activities
 from src.pipeline.detect import detect_monitoring_file, detect_workbook_type
 from src.pipeline.export_excel import build_processed_excel
 from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
@@ -129,7 +130,7 @@ def generate():
     # file is routed to whatever pipeline it belongs to; a file that can't be
     # confidently identified is reported clearly rather than silently
     # dropped or guessed at, and never blocks the files that WERE recognized.
-    coverage_saved, vpd_saved, rca_saved, supervisory_saved, indicator_sheet_saved, who_activities_saved = [], [], [], [], [], []
+    coverage_saved, vpd_saved, rca_saved, supervisory_saved, indicator_sheet_saved, who_activities_saved, admin_activities_saved = [], [], [], [], [], [], []
     for name in saved:
         path = paths["raw"] / name
         result = detect_monitoring_file(path) if name.lower().endswith(".xls") else detect_workbook_type(path)
@@ -146,6 +147,8 @@ def generate():
             indicator_sheet_saved.append(name)
         elif result.workbook_type == "who_activities":
             who_activities_saved.append(name)
+        elif result.workbook_type == "admin_activities":
+            admin_activities_saved.append(name)
         else:
             manifest["errors"].append(f"{name}: {result.message}")
 
@@ -201,6 +204,12 @@ def generate():
             run_who_activities(raw_dir=paths["raw"], processed_dir=paths["processed"])
         except Exception:
             manifest["errors"].append("WHO Supported Activities pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+
+    if admin_activities_saved:
+        try:
+            run_admin_activities(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except Exception:
+            manifest["errors"].append("Admin Activities pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
 
     # Always attempted, regardless of which pipelines ran or failed above --
     # build_dashboard degrades each tab independently (an "awaiting data"
