@@ -275,6 +275,19 @@
     notes box (same component, empty prompt text) so findings can be added
     or modified in place, matching the pattern already used elsewhere
     (e.g. the Measles Outbreak Alert's province-instructions box).
+- **Fourth refinement round** (done):
+  - **WHO tab, Key WHO-Supported Results**: the editable notes box added in
+    the third round is now explicitly labelled "Comments (click to edit)"
+    (via `editableInsight`'s custom-`labelText` argument, added last round)
+    instead of the generic "Insight (click to edit)" caption, since the
+    client's ask was specifically for a place to "add comments" and the
+    generic label wasn't reading as that feature.
+  - **Diphtheria (VPD Surveillance tab)**: the small "Weekly trend" bar
+    chart nested inside the main Diphtheria KPI card is gone, replaced in
+    that same position by the Age Group vs. Vaccination Status chart
+    (previously its own separate card immediately below the district map,
+    added in the first refinement round) -- a straight swap, not an
+    addition, so the age/dose breakdown no longer appears twice on the tab.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

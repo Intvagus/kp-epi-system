@@ -1961,17 +1961,14 @@
 
       '<div class="card"><h2><span class="disease-tag" style="background:var(--diphtheria);"></span>Diphtheria</h2>' +
         '<div class="grid kpi-row">' + diphKpis + '</div>' +
-        '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-diph-trend"></canvas></div>' +
+        '<h3>Age Group vs. Vaccination Status</h3><p class="sub">DPT dose status at time of case, by 5-year age band.</p>' +
+        '<div class="chart-wrap tall"><canvas id="chart-diph-age-dose"></canvas></div>' +
+        editableInsight("vpd-diph-agedose-" + v.latest_epi_week, diphAgeDoseAutoInsight) +
       '</div>' +
       (diphMapDistricts.length ? '<div class="card"><h2>🗺️ Diphtheria Cases by District</h2>' +
         singleDistrictMapHtml("map-diph", "map-tooltip-diph", "Diphtheria cases by district", "District boundaries: user-provided reference map. Case counts, not an incidence rate -- no population denominator exists for this disease.") +
         editableInsight("vpd-diph-map-" + v.latest_epi_week, diphMapAutoInsight) +
       '</div>' : "") +
-      '<div class="card"><h2>Age Group vs. Vaccination Status</h2>' +
-        '<p class="sub">DPT dose status at time of case, by 5-year age band.</p>' +
-        '<div class="chart-wrap tall"><canvas id="chart-diph-age-dose"></canvas></div>' +
-        editableInsight("vpd-diph-agedose-" + v.latest_epi_week, diphAgeDoseAutoInsight) +
-      '</div>' +
       '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis</h2>' +
         '<div class="grid kpi-row">' + [diseaseKpiCard("Suspected Pertussis", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div>' +
@@ -2025,7 +2022,7 @@
 
     destroyChart("mslDaily"); destroyChart("mslWeeklyTrend"); destroyChart("mslClassification"); destroyChart("mslOutcome");
     destroyChart("mslComplications"); destroyChart("mslTopDistricts"); destroyChart("mslAge"); destroyChart("mslSex");
-    destroyChart("mslDose"); destroyChart("msl2doseDistricts"); destroyChart("mslTimeliness"); destroyChart("diphTrend");
+    destroyChart("mslDose"); destroyChart("msl2doseDistricts"); destroyChart("mslTimeliness");
     destroyChart("diphAgeDose"); destroyChart("nntMotherVax"); destroyChart("nntDelivery");
 
     // ---- Daily epi curve: bars = daily case count, line = 7-day rolling avg,
@@ -2189,13 +2186,6 @@
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
         scales: { y: { grace: "15%" } } }
-    });
-
-    var dtrend = diph.weekly_trend;
-    charts.diphTrend = new Chart(document.getElementById("chart-diph-trend"), {
-      type: "bar",
-      data: { labels: dtrend.map(function (r) { return "W" + r.epi_week; }), datasets: [{ label: "Cases", data: dtrend.map(function (r) { return r.case_count; }), backgroundColor: "#7d3c98" }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
     });
 
     var diphAgeDoseColors = { "Zero dose": "#c5221f", "1-2 doses": "#b06a00", "3+ doses": "#1e8e3e", "Unknown": "#9aa0a6" };
@@ -2661,7 +2651,7 @@
     return '<div class="card"><h2>📋 4. Key WHO-Supported Results</h2>' +
       '<div class="table-scroll"><table><thead><tr><th>Theme</th><th>Narrative Result</th></tr></thead><tbody>' + resultRows + '</tbody></table></div>' +
       '<h3 style="margin-top:14px;">WHO Contribution / Action</h3><ul class="plain-list">' + contribItems + '</ul>' +
-      editableInsight("who-keyresults-notes-" + w.reporting_period_label, "Click to add or modify findings for this section.") +
+      editableInsight("who-keyresults-notes-" + w.reporting_period_label, "Click to add or modify findings for this section.", "Comments (click to edit)") +
     '</div>';
   }
 
