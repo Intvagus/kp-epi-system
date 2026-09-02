@@ -125,6 +125,8 @@ SUPERVISORY_FIELD_INDEX = {
     "score_monitoring_system_quality": 134,
     "score_operations_quality": 135,
     "score_practices_knowledge": 136,
+    "remarks": 33,
+    "remarks_if_no": 67,
 }
 
 SUPERVISORY_YES_NO_FIELDS = [

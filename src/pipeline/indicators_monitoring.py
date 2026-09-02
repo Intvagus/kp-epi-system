@@ -47,6 +47,19 @@ def rca_monitor_breakdown(df: pd.DataFrame) -> dict:
     }
 
 
+def rca_monitor_remarks(df: pd.DataFrame) -> list[dict]:
+    """Non-blank monitor comments from the RCA line list, deduplicated by
+    visit (record_id -- comments are visit-level, not child-level, so every
+    child row in a visit repeats the same comment), tagged with the visit's
+    own district/UC so a reviewer can act on it without cross-referencing
+    another table. A rule-based scan (pull every non-blank remark), not a
+    live AI call -- this dashboard is a fully offline static file."""
+    visits = df.drop_duplicates(subset="record_id")
+    mask = visits["comments"].notna() & (visits["comments"].astype(str).str.strip() != "")
+    remarks = visits.loc[mask, ["district", "uc", "visit_date", "comments"]].rename(columns={"comments": "remark"})
+    return remarks.to_dict(orient="records")
+
+
 def rca_antigen_coverage(df: pd.DataFrame) -> list[dict]:
     """% Vaccinated among children for whom the antigen was applicable
     (Vaccinated + Not Vaccinated), for every antigen in schedule order.
@@ -63,6 +76,19 @@ def rca_antigen_coverage(df: pd.DataFrame) -> list[dict]:
             "pct": (vaccinated / total * 100) if total else None,
         })
     return rows
+
+
+def rca_antigen_coverage_by_age_group(df: pd.DataFrame) -> dict:
+    """Same as rca_antigen_coverage, split by the source's own 'Age Group'
+    field (age_group column -- whatever categories it actually contains,
+    e.g. '0-11'/'12-23'/'24-52' in the data received; not padded to match
+    any assumed WHO age-band scheme), plus an 'All' key with the unfiltered
+    total -- feeds the Antigen Coverage age-segregation dropdown."""
+    groups = sorted(df["age_group"].dropna().unique().tolist())
+    result = {"All": rca_antigen_coverage(df)}
+    for group in groups:
+        result[group] = rca_antigen_coverage(df[df["age_group"] == group])
+    return result
 
 
 def rca_zero_dose_summary(df: pd.DataFrame) -> dict:
@@ -342,6 +368,20 @@ def supervisory_cold_chain_summary(df: pd.DataFrame) -> dict:
         "vaccines_out_of_stock_at_visit": _yes_rate(df["vaccines_out_of_stock_at_visit"]),
         "vvm_stage_3_4_present": _yes_rate(df["vvm_stage_3_4_present"]),
     }
+
+
+def supervisory_monitor_remarks(df: pd.DataFrame) -> list[dict]:
+    """Non-blank 'Remarks' / 'Remarks if No:' entries from the Supervisory
+    Checklist, tagged with district/UC -- same rule-based scan as
+    rca_monitor_remarks, not a live AI call. Both source fields are combined
+    into one list, each entry keeping its own source_field name."""
+    rows = []
+    for field, source_label in [("remarks", "Remarks"), ("remarks_if_no", "Remarks if No")]:
+        mask = df[field].notna() & (df[field].astype(str).str.strip() != "")
+        for _, r in df.loc[mask, ["district", "uc", "visit_datetime", field]].iterrows():
+            rows.append({"district": r["district"], "uc": r["uc"], "visit_date": r["visit_datetime"],
+                         "source_field": source_label, "remark": r[field]})
+    return rows
 
 
 def supervisory_fixed_site_open_rate(df: pd.DataFrame) -> dict:

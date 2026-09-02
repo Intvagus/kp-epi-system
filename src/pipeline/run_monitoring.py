@@ -45,6 +45,8 @@ def _build_rca_summary(rca: pd.DataFrame) -> dict:
         "overview": ind.rca_overview(rca),
         "monitor_breakdown": ind.rca_monitor_breakdown(rca),
         "antigen_coverage": ind.rca_antigen_coverage(rca),
+        "antigen_coverage_by_age_group": ind.rca_antigen_coverage_by_age_group(rca),
+        "monitor_remarks": ind.rca_monitor_remarks(rca),
         "zero_dose": ind.rca_zero_dose_summary(rca),
         "district_breakdown": ind.rca_district_breakdown(rca),
         "district_map": ind.rca_district_map(rca),
@@ -77,6 +79,7 @@ def _build_supervisory_summary(sup: pd.DataFrame) -> dict:
         "facility_rankings_service_functionality": ind.supervisory_facility_rankings(sup, "score_service_functionality"),
         "facility_rankings_operations_quality": ind.supervisory_facility_rankings(sup, "score_operations_quality"),
         "daily_visit_trend": ind.supervisory_daily_visit_trend(sup),
+        "monitor_remarks": ind.supervisory_monitor_remarks(sup),
     }
 
 

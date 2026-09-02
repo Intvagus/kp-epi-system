@@ -118,6 +118,78 @@
   a filters-only card) was made for all tabs, not just this one. 18 tests in
   `tests/test_who_activities.py`, pinned to real numbers from the source
   file.
+- **VPD/Monitoring dashboard refinement round** (client feedback on specific
+  screenshots, done): five targeted changes to existing domains, not new
+  domains.
+  1. **Diphtheria**: added a district spot map (`diphtheria_district_map` in
+     indicators_vpd.py) — raw case count, not an incidence rate, since no
+     population denominator exists for this disease (same reasoning as
+     "Confirmed VPD decisions" below). Added an Age Group vs. Vaccination
+     Status stacked bar (`diphtheria_age_dose_breakdown`): 5-year age band ×
+     a coarser DPT dose-status grouping (Zero dose / 1-2 doses / 3+ doses /
+     Unknown, regrouped from the existing `dose_status` field, no new raw
+     data).
+  2. **NNT**: "Cases (YTD)" relabeled to "Cases" (KPI card only covers this
+     one line-list period, "YTD" was misleading). Added a district spot map
+     (`nnt_district_map`) and two charts from the NNT line list: Mother
+     Vaccination History (`tt_doses_mother`) and Place of Delivery
+     (`delivery_place`). Two real data-quality findings surfaced, not
+     smoothed over: every one of the 132 NNT cases received shows the exact
+     same mother-TT-dose value ("0 doses") — shown as-is with an explicit
+     caveat that this could be a genuine finding or a field-completeness
+     gap, not silently treated as insightful variation; and `delivery_place`
+     has a literal `"0"` value (9 rows) that isn't a real delivery-place
+     category, normalized to "Not recorded" rather than shown as a bare 0
+     (same "never show a placeholder 0 as a category" rule as Coverage's
+     zero-target UCs).
+  3. **Measles Outbreak Alert** (VPD Surveillance tab): the old
+     quartile-based "Districts Requiring Action" table (relative
+     Critical/Action/Monitor priority tiers) is gone, replaced by
+     `measles_outbreak_alert_ucs` — a deterministic, documented rule (UC has
+     a confirmed measles case in 3 or more of the last 4 epi weeks in the
+     line list), explicitly labeled a rule-based screen for field
+     follow-up, not a formal transmission-chain/genomic model (no
+     contact-tracing data exists to build one) and not a confirmed-outbreak
+     determination. Ships with an editable free-text box (reusing the
+     existing `editableInsight` component) for province-issued outbreak
+     response instructions.
+  4. **District-wise (Measles Indicator Sheet)**: the old MSL-line-list
+     -derived district table (suspected/measles-confirmed/rubella-confirmed)
+     is replaced by a table sourced from the Measles Indicator Sheet
+     workbook instead (`indicator_sheet_vpd.py::build_district_table`) —
+     a separate source with its own district total (see Part 1b above),
+     shown on its own, still never reconciled against the MSL line list.
+  5. **Monitoring and Supervision tab, trimmed to a client-specified card
+     set** (stays its own top-level tab, not merged into Coverage — asked
+     and confirmed). RCA keeps: Summary, Antigen-wise Vaccination Status
+     (now with a District/Activity-Theme-style dropdown filter reusing the
+     source file's own "Age Group" categories — `0-11`/`12-23`/`24-52` in
+     the data received, not a fabricated `0-11/12-23/24-59` scheme; the
+     chart's height is now `antigens × 20px` rather than a flat "small",
+     since a flat 260px genuinely broke legibility for all 19 antigens —
+     found and fixed via direct screenshot inspection, not assumed),
+     RCA Visits by Monitor (Cadre & Agency — `monitor_designation` /
+     `monitor_agency`), Reasons for Non-Vaccination, and Area Profile.
+     Removed: RCA Coverage Map, Age & Sex Profile, Verification Source &
+     Social Mobilization, Daily Visit Trend. Supervisory Checklist keeps:
+     Summary, Checklist Item Compliance, and Cold Chain & Vaccine Supply
+     (now with real site-type KPI boxes added alongside it — 3 boxes,
+     Fixed/Outreach/Mobile, not the 2 the client's note assumed, since the
+     source data genuinely has 3 site-type categories, not fabricated down
+     to match). Removed: Supervisory Coverage Map, Composite Compliance
+     Scores card, standalone Site Type chart, Daily Visit Trend,
+     District-wise Composite Scores table, Facility Rankings table. A new
+     shared "Key Remarks from Monitors" card lists every non-blank remark
+     from both RCA (`comments`, positional column) and Supervisory
+     (`Remarks` / `Remarks if No:`, columns 33/67 — newly extracted into
+     `SUPERVISORY_FIELD_INDEX`, previously unused) tagged with district/UC —
+     explicitly a rule-based scan, not a live AI call (this dashboard is a
+     fully offline static file). Confirmed by inspection: Supervisory's two
+     remarks columns are entirely blank (0/63 rows) in the sample received,
+     surfaced honestly as "no remarks recorded" rather than hidden; RCA's 31
+     non-blank comments are mostly brief acknowledgements ("good work",
+     "....") rather than substantive field observations, noted explicitly
+     in the card's own caveat text rather than presented as if analyzed.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

@@ -202,7 +202,29 @@ def build_key_indicators_summary(sheet: dict) -> dict:
         "total_cases_reported": prov["total_cases_reported"],
         "indicators": rows,
         "measles_incidence_map": build_measles_incidence_map(sheet),
+        "district_table": build_district_table(sheet),
     }
+
+
+def build_district_table(sheet: dict) -> list[dict]:
+    """Per-district case counts from the Indicator Sheet's own columns,
+    shaped to replace the MSL line list's district-wise suspected/confirmed
+    table on the dashboard (a separate, independent source -- see this
+    module's docstring -- so the two are never mixed in one row). Uses the
+    sheet's own already-aggregated 'measles_total' (lab confirmed + double
+    infection + epi-linked + clinically compatible, all trusted as-is, same
+    'trust the sheet' rule as everywhere else in this module) rather than
+    recomputing a sum, and its own 'rubella_confirmed_cases'."""
+    rows = []
+    for row in sheet["districts"]:
+        rows.append({
+            "district": row["district"],
+            "total_cases_reported": row["total_cases_reported"],
+            "measles_lab_confirmed": row["measles_lab_confirmed"],
+            "measles_total": row["measles_total"],
+            "rubella_confirmed_cases": row["rubella_confirmed_cases"],
+        })
+    return rows
 
 
 def build_measles_incidence_map(sheet: dict) -> dict:

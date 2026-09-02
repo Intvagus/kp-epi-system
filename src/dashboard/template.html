@@ -367,6 +367,7 @@
     qualityPage: 0, qualityFilterType: "", qualitySearch: "", gapAntigen: "FIC",
     coveragePeriodKind: "monthly",
     whoDistrict: "", whoTheme: "", whoSearch: "",
+    rcaAgeGroup: "All",
   };
   // Maps a "monthly"/"cumulative" pill kind to the matching DATA.periods
   // entry's period_id (period_type is "monthly" or "cumulative_annual" --
@@ -1535,10 +1536,57 @@
     return '<div class="kpi-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
       (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
   }
-  function priorityBadgeClass(p) { return p === "Critical" ? "poor" : p === "Action" ? "warning" : "neutral"; }
 
   // ---- Key Surveillance Indicators (from the separate Measles Indicator
   // Sheet workbook, independent of the MSL line list) ----
+  function indicatorSheetDistrictTableHtml(ki) {
+    // Replaces the old MSL-line-list-derived district table. Deliberately a
+    // different source and a different total from the MSL line list (see
+    // indicator_sheet_vpd.py's module docstring) -- never reconciled against
+    // it, shown here on its own with that distinction stated explicitly.
+    if (!ki || ki.status !== "ok") {
+      return '<div class="card"><h2>District-wise (Measles Indicator Sheet)</h2><div class="placeholder-card">' +
+        '<div class="icon">⏳</div>No Measles Indicator Sheet has been uploaded yet.</div></div>';
+    }
+    var rows = ki.district_table.slice().sort(function (a, b) { return (b.total_cases_reported || 0) - (a.total_cases_reported || 0); })
+      .map(function (r) {
+        return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.total_cases_reported) + "</td><td>" + fmtNum(r.measles_lab_confirmed) +
+          "</td><td>" + fmtNum(r.measles_total) + "</td><td>" + fmtNum(r.rubella_confirmed_cases) + "</td></tr>";
+      }).join("");
+    return '<div class="card"><h2>District-wise (Measles Indicator Sheet, ' + escHtml(ki.year) + ')</h2>' +
+      '<p class="sub">From the Measles Indicator Sheet workbook -- a separate source from the MSL line list above, with its own district total. ' +
+      'The two are shown side by side, never reconciled against each other.</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>District</th><th>Total Cases Reported</th><th>Measles Lab Confirmed</th>' +
+      '<th>Measles Total (all classifications)</th><th>Rubella Confirmed</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '</div>';
+  }
+
+  function measlesOutbreakAlertHtml(v) {
+    // Replaces the old quartile-based "Districts Requiring Action" table.
+    // See indicators_vpd.py::measles_outbreak_alert_ucs -- a deterministic
+    // case-continuity rule-based screen (confirmed cases in most of the last
+    // 4 epi weeks in a UC), not a formal transmission-chain model.
+    var oa = v.msl.outbreak_alert;
+    var windowLabel = "weeks " + oa.window_weeks[0] + "-" + oa.window_weeks[oa.window_weeks.length - 1];
+    var rows = oa.ucs.map(function (r) {
+      var weekly = oa.window_weeks.map(function (w) { return "W" + w + ": " + fmtNum(r.weekly_counts[w] || 0); }).join(", ");
+      return "<tr><td>" + escHtml(r.uc) + "</td><td>" + escHtml(r.district) + "</td><td>" + r.weeks_with_cases + " of " + oa.window_weeks.length +
+        "</td><td>" + fmtNum(r.total_confirmed_in_window) + "</td><td>" + weekly + "</td></tr>";
+    }).join("");
+    var body = oa.ucs.length
+      ? '<div class="table-scroll"><table><thead><tr><th>UC</th><th>District</th><th>Weeks with confirmed cases</th>' +
+        '<th>Total confirmed (' + windowLabel + ')</th><th>Weekly breakdown</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<p class="sub">No UC currently has confirmed measles cases in ' + oa.min_weeks_with_cases + ' or more of ' + windowLabel + '.</p>';
+    var instructionsId = "vpd-outbreak-instructions-" + v.latest_epi_week;
+    return '<div class="card"><h2>Measles Outbreak Alert</h2>' +
+      '<p class="sub">UCs with confirmed measles cases in ' + oa.min_weeks_with_cases + ' or more of the last ' + oa.window_weeks.length +
+        ' epi weeks (' + windowLabel + ') -- a rule-based screen for possible ongoing active transmission, for field follow-up, not a confirmed outbreak determination.</p>' +
+      body +
+      '<h3 style="margin-top:14px;">Province instructions / outbreak response guidance</h3>' +
+      editableInsight(instructionsId, "Click to add province-level instructions for these districts/UCs regarding measles outbreak response.") +
+    '</div>';
+  }
+
   function keyIndicatorsSectionHtml(ki) {
     if (!ki || ki.status !== "ok") {
       return '<div class="card"><h2>Key Surveillance Indicators</h2><div class="placeholder-card">' +
@@ -1673,18 +1721,6 @@
       nounFor(dq.lab_confirmed_dose_validation.two_dose_count, "lab-confirmed case") + " " + plural(dq.lab_confirmed_dose_validation.two_dose_count, "had", "had") + " 2 prior vaccine doses recorded, and " + nounFor(dq.lab_confirmed_dose_validation.one_dose_count, "case") + " had 1 -- MCV is highly effective, so these merit field validation rather than being taken at face value.",
     ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
 
-    var districtRowsHtml = msl.district_breakdown.slice().sort(function (a, b) { return b.suspected - a.suspected; })
-      .map(function (r) {
-        return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.measles_confirmed) +
-          "</td><td>" + fmtNum(r.rubella_confirmed) + "</td></tr>";
-      }).join("");
-
-    // ---- Districts requiring action ----
-    var actionRows = msl.district_action_priority.map(function (r) {
-      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.suspected) + "</td><td>" + fmtNum(r.confirmed) +
-        "</td><td>" + fmtNum(r.data_quality_issues) + "</td><td><span class=\"badge " + priorityBadgeClass(r.priority) + "\">" + r.priority + "</span></td></tr>";
-    }).join("");
-
     var diphKpis = [
       diseaseKpiCard("Cases (YTD)", fmtNum(diph.ytd.case_count), diph.ytd.districts_affected + " districts affected"),
       diseaseKpiCard("Lab confirmed", fmtNum(diph.ytd.lab_confirmed_count), ""),
@@ -1699,11 +1735,52 @@
     var pertMissingDistrict = pert.total_cases - pertTotalFromDistricts;
 
     var nntKpis = [
-      diseaseKpiCard("Cases (YTD)", fmtNum(nnt.ytd.case_count), ""),
+      diseaseKpiCard("Cases", fmtNum(nnt.ytd.case_count), ""),
       diseaseKpiCard("Deaths", fmtNum(nnt.ytd.deaths), ""),
     ].join("");
     var nntRowsHtml = nnt.by_district_ytd.slice().sort(function (a, b) { return b.case_count - a.case_count; })
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
+
+    // ---- Diphtheria: district map + age vs. dose-status ----
+    var diphMapDistricts = diph.district_map ? Object.keys(diph.district_map.features) : [];
+    var diphMapTop = diphMapDistricts.reduce(function (best, name) {
+      return (!best || diph.district_map.features[name].case_count > diph.district_map.features[best].case_count) ? name : best;
+    }, null);
+    var diphMapAutoInsight = diphMapTop && diph.district_map.features[diphMapTop].case_count > 0
+      ? diphMapTop + " has the most diphtheria cases (" + fmtNum(diph.district_map.features[diphMapTop].case_count) + ")." +
+        (diph.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + diph.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No district-level diphtheria case data available to map.";
+    var diphAgeDose = diph.age_dose_breakdown;
+    var diphZeroDoseTotal = diphAgeDose.age_bands.reduce(function (s, b) { return s + (diphAgeDose.counts[b + "|Zero dose"] || 0); }, 0);
+    var diphAllTotal = Object.keys(diphAgeDose.counts).reduce(function (s, k) { return s + diphAgeDose.counts[k]; }, 0);
+    var diphAgeDoseAutoInsight = diphAllTotal
+      ? countPct(diphZeroDoseTotal, diphAllTotal) + " of diphtheria cases with a recorded age band had zero DPT doses at time of case."
+      : "No age/dose data available.";
+
+    // ---- NNT: district map + mother vaccination history + place of delivery ----
+    var nntMapDistricts = nnt.district_map ? Object.keys(nnt.district_map.features) : [];
+    var nntMapTop = nntMapDistricts.reduce(function (best, name) {
+      return (!best || nnt.district_map.features[name].case_count > nnt.district_map.features[best].case_count) ? name : best;
+    }, null);
+    var nntMapAutoInsight = nntMapTop && nnt.district_map.features[nntMapTop].case_count > 0
+      ? nntMapTop + " has the most neonatal tetanus cases (" + fmtNum(nnt.district_map.features[nntMapTop].case_count) + ")." +
+        (nnt.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + nnt.district_map.unmapped_districts.join(", ") + "." : "")
+      : "No district-level NNT case data available to map.";
+    var mvhKeys = Object.keys(nnt.mother_vaccination_history);
+    var mvhTotal = mvhKeys.reduce(function (s, k) { return s + nnt.mother_vaccination_history[k]; }, 0);
+    var mvhAllSame = mvhKeys.length === 1;
+    var nntMotherVaxAutoInsight = mvhAllSame
+      ? "Every NNT case in this dataset shows the same recorded value (\"" + mvhKeys[0] + "\") for mother's TT dose history -- either a genuine finding (all case mothers unvaccinated) or a field-completeness gap; worth field verification either way."
+      : (mvhKeys.length ? mvhKeys.reduce(function (best, k) { return nnt.mother_vaccination_history[k] > nnt.mother_vaccination_history[best] ? k : best; }, mvhKeys[0]) : "") &&
+        "Most common recorded mother TT dose history: \"" + mvhKeys.reduce(function (best, k) { return nnt.mother_vaccination_history[k] > nnt.mother_vaccination_history[best] ? k : best; }, mvhKeys[0]) + "\" (" +
+        countPct(Math.max.apply(null, mvhKeys.map(function (k) { return nnt.mother_vaccination_history[k]; })), mvhTotal) + " of cases).";
+    var podKeys = Object.keys(nnt.place_of_delivery);
+    var podTotal = podKeys.reduce(function (s, k) { return s + nnt.place_of_delivery[k]; }, 0);
+    var podTop = podKeys.reduce(function (best, k) { return (!best || nnt.place_of_delivery[k] > nnt.place_of_delivery[best]) ? k : best; }, null);
+    var nntDeliveryAutoInsight = podTop
+      ? "Most common recorded place of delivery: " + podTop + " (" + countPct(nnt.place_of_delivery[podTop], podTotal) + " of cases)." +
+        (nnt.place_of_delivery["Not recorded"] ? " " + nounFor(nnt.place_of_delivery["Not recorded"], "case") + " " + plural(nnt.place_of_delivery["Not recorded"], "has", "have") + " no place of delivery recorded." : "")
+      : "No place-of-delivery data available.";
 
     var mslInsightId = "vpd-msl-summary-" + v.latest_epi_week;
     var mslAutoInsight = "Week " + v.latest_epi_week + ": " + nounFor(msl.suspected_latest_week, "suspected case") + " reported this week, " +
@@ -1744,8 +1821,7 @@
     // ---- Tab-level Overview / Summary (Section 5's spec: overall suspected
     // cases, classification mix, trend, key indicators, attention areas) ----
     var pertTotalCases = pert.total_cases;
-    var criticalDistricts = msl.district_action_priority.filter(function (r) { return r.priority === "Critical"; }).length;
-    var actionDistricts = msl.district_action_priority.filter(function (r) { return r.priority === "Action"; }).length;
+    var outbreakUcs = msl.outbreak_alert.ucs;
     var kiHeadline = "";
     if (ki && ki.status === "ok") {
       var kiIncidence = ki.indicators.filter(function (r) { return r.key === "measles_incidence_per_million"; })[0];
@@ -1766,7 +1842,9 @@
       (topClass ? "Most common final classification: " + topClass + " (" + (classTotal ? (msl.classification_breakdown[topClass] / classTotal * 100).toFixed(1) : "0.0") + "%); most common outcome: " + topOutcome + " (" + (outcomeTotal ? (msl.outcome_breakdown[topOutcome] / outcomeTotal * 100).toFixed(1) : "0.0") + "%). " : "") +
       (wt.length ? "Weekly confirmed measles cases peaked in week " + wtPeakMeasles.epi_week + " at " + fmtNum(wtPeakMeasles.measles_confirmed) + "; the latest week logged " + fmtNum(wtLatest.measles_confirmed) + " measles-confirmed, " + fmtNum(wtLatest.rubella_confirmed) + " rubella-confirmed and " + fmtNum(wtLatest.discarded) + " discarded. " : "") +
       "Also reported YTD: " + nounFor(diph.ytd.case_count, "diphtheria case") + ", " + nounFor(pertTotalCases, "pertussis case") + " and " + nounFor(nnt.ytd.case_count, "neonatal tetanus case") + "." + deathNote + kiHeadline + " " +
-      ((criticalDistricts + actionDistricts) ? nounFor(criticalDistricts + actionDistricts, "district requires", "districts require") + " priority follow-up based on case load and data-quality flags." : "No districts currently flagged for priority follow-up.");
+      (outbreakUcs.length ? nounFor(outbreakUcs.length, "UC shows", "UCs show") + " signs of ongoing active measles transmission (confirmed cases in " +
+        msl.outbreak_alert.min_weeks_with_cases + "+ of the last " + msl.outbreak_alert.window_weeks.length + " epi weeks) -- see Measles Outbreak Alert below."
+        : "No UCs currently show signs of ongoing active measles transmission by this screen's rule -- see Measles Outbreak Alert below.");
 
     el.innerHTML =
       '<div class="card"><h2>📊 VPD Surveillance Overview</h2>' +
@@ -1836,12 +1914,9 @@
         (dq.timeliness.negative_delay_count > 0 ? '<p class="sub">' + nounFor(dq.timeliness.negative_delay_count, "case") + ' excluded: notification date recorded before rash onset date.</p>' : '') +
       '</div>' +
 
-      '<h3>District-wise (suspected / measles-confirmed / rubella-confirmed)</h3>' +
-      '<div class="card"><div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Measles confirmed</th><th>Rubella confirmed</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div></div>' +
+      indicatorSheetDistrictTableHtml(ki) +
 
-      '<div class="card"><h2>Districts Requiring Action</h2>' +
-        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Suspected</th><th>Confirmed</th><th>Data quality issues</th><th>Priority</th></tr></thead><tbody>' + actionRows + '</tbody></table></div>' +
-      '</div>' +
+      measlesOutbreakAlertHtml(v) +
 
       keyIndicatorsSectionHtml(ki) +
 
@@ -1849,22 +1924,60 @@
         '<div class="grid kpi-row">' + diphKpis + '</div>' +
         '<h3>Weekly trend</h3><div class="chart-wrap"><canvas id="chart-diph-trend"></canvas></div>' +
       '</div>' +
+      (diphMapDistricts.length ? '<div class="card"><h2>🗺️ Diphtheria Cases by District</h2>' +
+        singleDistrictMapHtml("map-diph", "map-tooltip-diph", "Diphtheria cases by district", "District boundaries: user-provided reference map. Case counts, not an incidence rate -- no population denominator exists for this disease.") +
+        editableInsight("vpd-diph-map-" + v.latest_epi_week, diphMapAutoInsight) +
+      '</div>' : "") +
+      '<div class="card"><h2>Age Group vs. Vaccination Status</h2>' +
+        '<p class="sub">DPT dose status at time of case, by 5-year age band.</p>' +
+        '<div class="chart-wrap tall"><canvas id="chart-diph-age-dose"></canvas></div>' +
+        editableInsight("vpd-diph-agedose-" + v.latest_epi_week, diphAgeDoseAutoInsight) +
+      '</div>' +
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (YTD)</h2>' +
+        '<div class="grid kpi-row">' + [diseaseKpiCard("Cases (YTD)", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div>' +
+      '</div>' +
+      '<div class="card"><h2><span class="disease-tag" style="background:var(--nnt);"></span>Neonatal Tetanus</h2>' +
+        '<div class="grid kpi-row">' + nntKpis + '</div>' +
+        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + nntRowsHtml + '</tbody></table></div>' +
+      '</div>' +
+      (nntMapDistricts.length ? '<div class="card"><h2>🗺️ Neonatal Tetanus Cases by District</h2>' +
+        singleDistrictMapHtml("map-nnt", "map-tooltip-nnt", "NNT cases by district", "District boundaries: user-provided reference map.") +
+        editableInsight("vpd-nnt-map-" + v.latest_epi_week, nntMapAutoInsight) +
+      '</div>' : "") +
       '<div class="grid two-col">' +
-        '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis (YTD)</h2>' +
-          '<div class="grid kpi-row">' + [diseaseKpiCard("Cases (YTD)", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
-          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div></div>' +
-        '<div class="card"><h2><span class="disease-tag" style="background:var(--nnt);"></span>Neonatal Tetanus</h2>' +
-          '<div class="grid kpi-row">' + nntKpis + '</div>' +
-          '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + nntRowsHtml + '</tbody></table></div></div>' +
+        '<div class="card"><h2>Mother Vaccination History</h2>' +
+          '<p class="sub">Recorded TT dose count for the mother, from the NNT line list.</p>' +
+          '<div class="chart-wrap"><canvas id="chart-nnt-mothervax"></canvas></div>' +
+          editableInsight("vpd-nnt-mothervax-" + v.latest_epi_week, nntMotherVaxAutoInsight) +
+        '</div>' +
+        '<div class="card"><h2>Place of Delivery</h2>' +
+          '<div class="chart-wrap"><canvas id="chart-nnt-delivery"></canvas></div>' +
+          editableInsight("vpd-nnt-delivery-" + v.latest_epi_week, nntDeliveryAutoInsight) +
+        '</div>' +
       '</div>' +
       '<div class="card"><h2>AFP Surveillance</h2><div class="placeholder-card"><div class="icon">⏳</div>' + v.afp.message + '</div></div>';
 
     wireEditableInsights(el);
     renderMeaslesIncidenceMap(ki);
 
+    if (diphMapDistricts.length) {
+      renderSingleDistrictMap("map-diph", "map-tooltip-diph", diph.district_map,
+        function (entry) { return entry.case_count; },
+        function (label, entry) { return label + "<br>Diphtheria cases: " + fmtNum(entry.case_count); },
+        function (name, entry) { return name + ": " + fmtNum(entry.case_count); });
+    }
+    if (nntMapDistricts.length) {
+      renderSingleDistrictMap("map-nnt", "map-tooltip-nnt", nnt.district_map,
+        function (entry) { return entry.case_count; },
+        function (label, entry) { return label + "<br>NNT cases: " + fmtNum(entry.case_count); },
+        function (name, entry) { return name + ": " + fmtNum(entry.case_count); });
+    }
+
     destroyChart("mslDaily"); destroyChart("mslWeeklyTrend"); destroyChart("mslClassification"); destroyChart("mslOutcome");
     destroyChart("mslComplications"); destroyChart("mslTopDistricts"); destroyChart("mslAge"); destroyChart("mslSex");
     destroyChart("mslDose"); destroyChart("msl2doseDistricts"); destroyChart("mslTimeliness"); destroyChart("diphTrend");
+    destroyChart("diphAgeDose"); destroyChart("nntMotherVax"); destroyChart("nntDelivery");
 
     // ---- Daily epi curve: bars = daily case count, line = 7-day rolling avg,
     // with the peak day and the latest day permanently labelled (PDF-friendly). ----
@@ -2035,6 +2148,37 @@
       data: { labels: dtrend.map(function (r) { return "W" + r.epi_week; }), datasets: [{ label: "Cases", data: dtrend.map(function (r) { return r.case_count; }), backgroundColor: "#7d3c98" }] },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
     });
+
+    var diphAgeDoseColors = { "Zero dose": "#c5221f", "1-2 doses": "#b06a00", "3+ doses": "#1e8e3e", "Unknown": "#9aa0a6" };
+    charts.diphAgeDose = new Chart(document.getElementById("chart-diph-age-dose"), {
+      type: "bar",
+      data: {
+        labels: diphAgeDose.age_bands,
+        datasets: diphAgeDose.dose_groups.map(function (grp) {
+          var data = diphAgeDose.age_bands.map(function (band) { return diphAgeDose.counts[band + "|" + grp]; });
+          return { label: grp, data: data, backgroundColor: diphAgeDoseColors[grp], labelText: data.map(function (v) { return v ? fmtNum(v) : ""; }) };
+        }),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { stacked: true, ticks: { font: { size: 10 } } }, y: { stacked: true, ticks: { precision: 0 }, grace: "15%" } },
+      }
+    });
+
+    var mvhDoughnut = doughnutData(nnt.mother_vaccination_history);
+    charts.nntMotherVax = new Chart(document.getElementById("chart-nnt-mothervax"), {
+      type: "doughnut",
+      data: { labels: mvhDoughnut.labels, datasets: [{ data: mvhDoughnut.values, backgroundColor: mvhDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
+    });
+
+    var podDoughnut = doughnutData(nnt.place_of_delivery);
+    charts.nntDelivery = new Chart(document.getElementById("chart-nnt-delivery"), {
+      type: "doughnut",
+      data: { labels: podDoughnut.labels, datasets: [{ data: podDoughnut.values, backgroundColor: podDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
+    });
   }
 
   // ================= MONITORING (RCA + Supervisory Checklist) =================
@@ -2083,21 +2227,19 @@
       nounFor(ov.monitors_involved, "monitor") + ". " + nounFor(zd.zero_dose_count, "zero-dose child", "zero-dose children") +
       " identified (" + fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1).";
 
-    var antigenInsightId = "monitoring-rca-antigen-" + (rca.reporting_window || "");
-    var lowestAntigen = rca.antigen_coverage.filter(function (r) { return r.pct !== null; })
+    // Age-segregation dropdown on Antigen-wise Vaccination Status, using the
+    // source's own "Age Group" field (whatever categories it actually
+    // contains -- see rca_antigen_coverage_by_age_group).
+    var ageGroupOptions = Object.keys(rca.antigen_coverage_by_age_group);
+    if (ageGroupOptions.indexOf(state.rcaAgeGroup) === -1) state.rcaAgeGroup = "All";
+    var antigenRows = rca.antigen_coverage_by_age_group[state.rcaAgeGroup];
+    var antigenInsightId = "monitoring-rca-antigen-" + state.rcaAgeGroup + "-" + (rca.reporting_window || "");
+    var lowestAntigen = antigenRows.filter(function (r) { return r.pct !== null; })
       .reduce(function (worst, r) { return (worst === null || r.pct < worst.pct) ? r : worst; }, null);
     var antigenAutoInsight = lowestAntigen
-      ? "Lowest field-verified coverage: " + lowestAntigen.antigen + " at " + fmtPct(lowestAntigen.pct) +
+      ? "Lowest field-verified coverage" + (state.rcaAgeGroup !== "All" ? " (age group " + state.rcaAgeGroup + ")" : "") + ": " + lowestAntigen.antigen + " at " + fmtPct(lowestAntigen.pct) +
         " (" + lowestAntigen.vaccinated + " of " + lowestAntigen.assessed + " applicable children)."
-      : "No antigen coverage data available.";
-
-    var ageKeys = Object.keys(rca.age_group_breakdown);
-    var ageTotal = ageKeys.reduce(function (s, k) { return s + rca.age_group_breakdown[k]; }, 0);
-    var ageSexInsightId = "monitoring-rca-agesex-" + (rca.reporting_window || "");
-    var largestAgeGroup = ageKeys.reduce(function (best, k) { return (!best || rca.age_group_breakdown[k] > rca.age_group_breakdown[best]) ? k : best; }, null);
-    var ageSexAutoInsight = largestAgeGroup
-      ? "Largest age group assessed: " + largestAgeGroup + " months (" + countPct(rca.age_group_breakdown[largestAgeGroup], ageTotal) + " of children assessed)."
-      : "No age distribution data available.";
+      : "No antigen coverage data available for this age group.";
 
     var areaTotal = ov.total_children_assessed;
     var htr = rca.hard_to_reach, hrp = rca.high_risk_population;
@@ -2116,14 +2258,6 @@
     var monitorAutoInsight = (topDesignation ? "Most RCA visits were conducted by " + topDesignation + " monitors (" + countPct(mb.by_designation[topDesignation], ov.total_rca_visits) + " of visits). " : "") +
       (topAgency ? topAgency + " conducted " + countPct(mb.by_agency[topAgency], ov.total_rca_visits) + " of visits." : "");
 
-    var sourceInsightId = "monitoring-rca-source-" + (rca.reporting_window || "");
-    var sourceKeys = Object.keys(rca.vaccine_source_breakdown);
-    var sourceTotal = sourceKeys.reduce(function (s, k) { return s + rca.vaccine_source_breakdown[k]; }, 0);
-    var infoSourceKeys = Object.keys(rca.info_source_breakdown);
-    var topInfoSource = infoSourceKeys.reduce(function (best, k) { return (!best || rca.info_source_breakdown[k] > rca.info_source_breakdown[best]) ? k : best; }, null);
-    var sourceAutoInsight = "Vaccination status was confirmed by card for " + countPct(rca.vaccine_source_breakdown["card"] || 0, sourceTotal) + " of children" +
-      (topInfoSource ? "; the most-cited social mobilization channel was " + topInfoSource + " (" + nounFor(rca.info_source_breakdown[topInfoSource], "mention") + ")." : ".");
-
     var reasonsKeys = Object.keys(rca.non_vaccination_reasons);
     var reasonsTotal = reasonsKeys.reduce(function (s, k) { return s + rca.non_vaccination_reasons[k]; }, 0);
     var reasonsInsightId = "monitoring-rca-reasons-" + (rca.reporting_window || "");
@@ -2131,25 +2265,6 @@
     var reasonsAutoInsight = topReason
       ? "Most-cited reason for non-vaccination: \"" + topReason + "\" (" + countPct(rca.non_vaccination_reasons[topReason], reasonsTotal) + " of " + fmtNum(reasonsTotal) + " recorded reasons)."
       : "";
-
-    var trendInsightId = "monitoring-rca-trend-" + (rca.reporting_window || "");
-    var trendAutoInsight = "";
-    if (rca.daily_visit_trend.length > 1) {
-      var trendPeak = rca.daily_visit_trend.reduce(function (b, r) { return r.children_assessed > b.children_assessed ? r : b; });
-      trendAutoInsight = "Busiest day: " + trendPeak.visit_date + " with " + fmtNum(trendPeak.children_assessed) + " children assessed.";
-    }
-
-    var mapInsightId = "monitoring-rca-map-" + (rca.reporting_window || "");
-    var mapDistricts = rca.district_map ? Object.keys(rca.district_map.features) : [];
-    var mapTopDistrict = mapDistricts.reduce(function (best, name) {
-      var v = rca.district_map.features[name].children_assessed;
-      return (!best || v > rca.district_map.features[best].children_assessed) ? name : best;
-    }, null);
-    var mapAutoInsight = mapTopDistrict
-      ? mapTopDistrict + " had the most RCA activity (" + fmtNum(rca.district_map.features[mapTopDistrict].children_assessed) + " children assessed across " +
-        nounFor(rca.district_map.features[mapTopDistrict].rca_visits, "visit") + ")." +
-        (rca.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + rca.district_map.unmapped_districts.join(", ") + "." : "")
-      : "No district data available to map.";
 
     var html =
       '<div class="section-heading"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
@@ -2159,22 +2274,23 @@
         editableInsight(overviewInsightId, overviewAutoInsight) +
         zdAnomalyHtml +
       '</div>' +
-      (mapDistricts.length ? '<div class="card"><h2>🗺️ RCA Coverage Map</h2>' +
-        singleDistrictMapHtml("map-rca", "map-tooltip-rca", "Children assessed by district", "District boundaries: user-provided reference map.") +
-        editableInsight(mapInsightId, mapAutoInsight) +
-      '</div>' : "") +
       '<div class="card"><h2>Antigen-wise Vaccination Status (field-verified)</h2>' +
-        '<div class="chart-wrap tall"><canvas id="chart-rca-antigen"></canvas></div>' +
+        '<div class="controls-row"><label style="font-size:12.5px;">Age group: </label><select class="filter-select" id="rca-agegroup-filter">' +
+          ageGroupOptions.map(function (g) { return '<option value="' + escHtml(g) + '"' + (state.rcaAgeGroup === g ? " selected" : "") + '>' + (g === "All" ? "All ages" : g + " months") + '</option>'; }).join("") +
+        '</select><span class="print-only-filter">Age group: ' + (state.rcaAgeGroup === "All" ? "All ages" : state.rcaAgeGroup + " months") + '</span></div>' +
+        '<div class="chart-wrap" style="height:' + Math.max(200, antigenRows.length * 20) + 'px;"><canvas id="chart-rca-antigen"></canvas></div>' +
         '<p class="sub">Children vaccinated, of those for whom each antigen was applicable by age (excludes children not yet due).</p>' +
         editableInsight(antigenInsightId, antigenAutoInsight) +
       '</div>' +
-      '<div class="card"><h2>Age &amp; Sex Profile</h2>' +
+      '<div class="card"><h2>RCA Visits by Monitor (Cadre &amp; Agency)</h2>' +
         '<div class="grid two-col">' +
-          '<div><h3>Age Group</h3><div class="chart-wrap"><canvas id="chart-rca-age"></canvas></div></div>' +
-          '<div><h3>Sex</h3><div class="chart-wrap"><canvas id="chart-rca-sex"></canvas></div></div>' +
+          '<div><h3>By Designation (Cadre)</h3><div class="chart-wrap"><canvas id="chart-rca-designation"></canvas></div></div>' +
+          '<div><h3>By Agency</h3><div class="chart-wrap"><canvas id="chart-rca-agency"></canvas></div></div>' +
         '</div>' +
-        editableInsight(ageSexInsightId, ageSexAutoInsight) +
+        editableInsight(monitorInsightId, monitorAutoInsight) +
       '</div>' +
+      (reasonsKeys.length ? '<div class="card"><h2>Reasons for Non-Vaccination</h2><div class="chart-wrap"><canvas id="chart-rca-reasons"></canvas></div>' +
+        editableInsight(reasonsInsightId, reasonsAutoInsight) + '</div>' : "") +
       '<div class="card"><h2>Area Profile</h2>' +
         '<div class="grid three-col">' +
           '<div><h3>Urban / Rural</h3><div class="chart-wrap"><canvas id="chart-rca-areatype"></canvas></div></div>' +
@@ -2182,66 +2298,28 @@
           '<div><h3>High-Risk Population</h3><div class="chart-wrap"><canvas id="chart-rca-hrp"></canvas></div></div>' +
         '</div>' +
         editableInsight(areaInsightId, areaAutoInsight) +
-      '</div>' +
-      '<div class="card"><h2>RCA Visits by Monitor</h2>' +
-        '<div class="grid two-col">' +
-          '<div><h3>By Designation</h3><div class="chart-wrap"><canvas id="chart-rca-designation"></canvas></div></div>' +
-          '<div><h3>By Agency</h3><div class="chart-wrap"><canvas id="chart-rca-agency"></canvas></div></div>' +
-        '</div>' +
-        editableInsight(monitorInsightId, monitorAutoInsight) +
-      '</div>' +
-      '<div class="card"><h2>Verification Source &amp; Social Mobilization</h2>' +
-        '<div class="grid two-col">' +
-          '<div><h3>Vaccine Source</h3><div class="chart-wrap"><canvas id="chart-rca-source"></canvas></div>' +
-            '<p class="sub">Card = confirmed against a written record; recall = caregiver memory only.</p></div>' +
-          '<div><h3>Social Mobilization Channel</h3><div class="chart-wrap"><canvas id="chart-rca-infosource"></canvas></div></div>' +
-        '</div>' +
-        editableInsight(sourceInsightId, sourceAutoInsight) +
-      '</div>' +
-      (reasonsKeys.length ? '<div class="card"><h2>Reasons for Non-Vaccination</h2><div class="chart-wrap"><canvas id="chart-rca-reasons"></canvas></div>' +
-        editableInsight(reasonsInsightId, reasonsAutoInsight) + '</div>' : "") +
-      (rca.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-rca-trend"></canvas></div>' +
-        editableInsight(trendInsightId, trendAutoInsight) + '</div>' : "");
+      '</div>';
 
     return { html: html, build: function () {
-      destroyChart("rcaAntigen"); destroyChart("rcaAge"); destroyChart("rcaSex"); destroyChart("rcaAreaType");
+      destroyChart("rcaAntigen"); destroyChart("rcaAreaType");
       destroyChart("rcaHtr"); destroyChart("rcaHrp"); destroyChart("rcaDesignation"); destroyChart("rcaAgency");
-      destroyChart("rcaSource"); destroyChart("rcaInfoSource"); destroyChart("rcaReasons"); destroyChart("rcaTrend");
-
-      if (mapDistricts.length) {
-        renderSingleDistrictMap("map-rca", "map-tooltip-rca", rca.district_map,
-          function (entry) { return entry.children_assessed; },
-          function (label, entry) {
-            return label + "<br>Children assessed: " + fmtNum(entry.children_assessed) + "<br>RCA visits: " + fmtNum(entry.rca_visits) +
-              "<br>Zero-dose: " + fmtNum(entry.zero_dose_count) + " (" + fmtPct(entry.zero_dose_pct) + ")";
-          },
-          function (name, entry) { return name + ": " + fmtNum(entry.children_assessed); });
-      }
+      destroyChart("rcaReasons");
 
       charts.rcaAntigen = new Chart(document.getElementById("chart-rca-antigen"), {
         type: "bar",
         data: {
-          labels: rca.antigen_coverage.map(function (r) { return r.antigen; }),
-          datasets: [{ label: "Vaccinated (of applicable)", data: rca.antigen_coverage.map(function (r) { return r.vaccinated; }),
-            backgroundColor: rca.antigen_coverage.map(function (r) { return targetMetColor(r.pct === null ? 0 : r.pct); }),
-            labelText: rca.antigen_coverage.map(function (r) { return r.pct === null ? "n/a" : countPct(r.vaccinated, r.assessed); }) }]
+          labels: antigenRows.map(function (r) { return r.antigen; }),
+          datasets: [{ label: "Vaccinated (of applicable)", data: antigenRows.map(function (r) { return r.vaccinated; }),
+            backgroundColor: antigenRows.map(function (r) { return targetMetColor(r.pct === null ? 0 : r.pct); }),
+            labelText: antigenRows.map(function (r) { return r.pct === null ? "n/a" : countPct(r.vaccinated, r.assessed); }) }]
         },
         options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "20%" } } }
       });
 
-      charts.rcaAge = new Chart(document.getElementById("chart-rca-age"), {
-        type: "bar",
-        data: { labels: ageKeys, datasets: [{ label: "Children", data: ageKeys.map(function (k) { return rca.age_group_breakdown[k]; }),
-          backgroundColor: "#1a5fb4", labelText: ageKeys.map(function (k) { return countPct(rca.age_group_breakdown[k], ageTotal); }) }] },
-        options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } }, plugins: { legend: { display: false } }, scales: { y: { grace: "15%" } } }
-      });
-
-      var rcaSexDoughnut = doughnutData(rca.sex_breakdown);
-      charts.rcaSex = new Chart(document.getElementById("chart-rca-sex"), {
-        type: "doughnut",
-        data: { labels: rcaSexDoughnut.labels, datasets: [{ data: rcaSexDoughnut.values, backgroundColor: rcaSexDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
-      });
+      var rcaAgeGroupSelect = document.getElementById("rca-agegroup-filter");
+      if (rcaAgeGroupSelect) {
+        rcaAgeGroupSelect.addEventListener("change", function (e) { state.rcaAgeGroup = e.target.value; renderSupervision(); });
+      }
 
       var areaTypeCounts = {};
       rca.area_type_breakdown.forEach(function (r) { areaTypeCounts[r.area_type] = r.children_assessed; });
@@ -2281,38 +2359,12 @@
         options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
       });
 
-      var rcaSourceDoughnut = doughnutData(rca.vaccine_source_breakdown);
-      charts.rcaSource = new Chart(document.getElementById("chart-rca-source"), {
-        type: "doughnut",
-        data: { labels: rcaSourceDoughnut.labels, datasets: [{ data: rcaSourceDoughnut.values, backgroundColor: rcaSourceDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
-      });
-
-      var infoSourceTotal = infoSourceKeys.reduce(function (s, k) { return s + rca.info_source_breakdown[k]; }, 0);
-      charts.rcaInfoSource = new Chart(document.getElementById("chart-rca-infosource"), {
-        type: "bar",
-        data: { labels: infoSourceKeys, datasets: [{ label: "Mentions", data: infoSourceKeys.map(function (k) { return rca.info_source_breakdown[k]; }),
-          backgroundColor: "#0f766e", labelText: infoSourceKeys.map(function (k) { return countPct(rca.info_source_breakdown[k], infoSourceTotal); }) }] },
-        options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "25%" } } }
-      });
-
       if (reasonsKeys.length) {
         charts.rcaReasons = new Chart(document.getElementById("chart-rca-reasons"), {
           type: "bar",
           data: { labels: reasonsKeys, datasets: [{ label: "Cases", data: reasonsKeys.map(function (k) { return rca.non_vaccination_reasons[k]; }),
             backgroundColor: "#c5221f", labelText: reasonsKeys.map(function (k) { return countPct(rca.non_vaccination_reasons[k], reasonsTotal); }) }] },
           options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "25%" } } }
-        });
-      }
-      if (rca.daily_visit_trend.length > 1) {
-        var rcaTrendValues = rca.daily_visit_trend.map(function (r) { return r.children_assessed; });
-        var rcaTrendLabels = peakLatestLabels(rcaTrendValues);
-        charts.rcaTrend = new Chart(document.getElementById("chart-rca-trend"), {
-          type: "line",
-          data: { labels: rca.daily_visit_trend.map(function (r) { return r.visit_date; }),
-            datasets: [{ label: "Children assessed", data: rcaTrendValues, borderColor: "#0f766e", backgroundColor: "#0f766e", tension: 0.2,
-              pointRadius: rcaTrendLabels.map(function (l) { return l ? 4 : 2; }), labelText: rcaTrendLabels }] },
-          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { display: false } } }
         });
       }
     } };
@@ -2333,13 +2385,6 @@
       monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
     ].join("");
 
-    var scoreCards = sup.composite_scores.map(function (s) {
-      return monitoringKpiCard(s.category, ratePct(s.avg_pct), "range " + ratePct(s.min_pct) + " – " + ratePct(s.max_pct));
-    }).join("");
-
-    var serviceFunctionalityCaveat = sup.composite_scores.some(function (s) { return s.category === "Service Functionality" && s.avg_pct === 0; })
-      ? '<p class="sub">Note: "Service Functionality" reflects the UC-level microplan checklist block, which was not answered in any visit in this dataset -- a 0% average here means that section wasn\'t used during these visits, not that facilities failed every item.</p>' : "";
-
     var riskHtml = "";
     if (sup.practice_risk_flags.length) {
       var riskPills = sup.practice_risk_flags.map(function (r) {
@@ -2349,39 +2394,24 @@
     }
 
     var cc = sup.cold_chain;
+    var siteTypeKeys = Object.keys(sup.site_type_breakdown);
+    var siteTypeTotal = siteTypeKeys.reduce(function (s, k) { return s + sup.site_type_breakdown[k]; }, 0);
+    var siteTypeKpis = siteTypeKeys.map(function (k) {
+      return monitoringKpiCard(k.charAt(0).toUpperCase() + k.slice(1) + " sites", fmtNum(sup.site_type_breakdown[k]), countPct(sup.site_type_breakdown[k], siteTypeTotal) + " of visits");
+    }).join("");
     var coldChainKpis = [
       monitoringKpiCard("Backup power available", ratePct(cc.backup_power_available.pct), cc.backup_power_available.answered + " visits checked"),
       monitoringKpiCard("SDD fridges functional", cc.sdd.total_units ? ratePct(Math.min(cc.sdd.pct_functional, 100)) : "—", cc.sdd.functional_units + "/" + cc.sdd.total_units + " units" + (cc.sdd.inconsistent_visits ? " (data inconsistency flagged)" : "")),
       monitoringKpiCard("ILR functional units observed", fmtNum(cc.ilr_functional_units_observed), "no installed-base total in source data"),
       monitoringKpiCard("Stockout in last 3 months", ratePct(cc.stockout_last_3_months.pct), cc.stockout_last_3_months.answered + " visits checked"),
-    ].join("");
+    ].join("") + siteTypeKpis;
 
     var compItems = sup.compliance_items;
-
-    var districtRowsHtml = sup.district_breakdown.map(function (r) {
-      return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.visits) + "</td><td>" + ratePct(r.score_service_functionality) +
-        "</td><td>" + ratePct(r.score_monitoring_system_quality) + "</td><td>" + ratePct(r.score_operations_quality) +
-        "</td><td>" + ratePct(r.score_practices_knowledge) + "</td></tr>";
-    }).join("");
-
-    function facilityRankRows(list) {
-      return list.map(function (r) {
-        return "<tr><td>" + escHtml(r.health_facility) + "</td><td>" + escHtml(r.district) + "</td><td>" + ratePct(r.pct) + "</td></tr>";
-      }).join("");
-    }
-    var rankings = sup.facility_rankings_operations_quality;
 
     var overviewInsightId = "monitoring-supervisory-summary-" + (sup.reporting_window || "");
     var overviewAutoInsight = fmtNum(ov.total_visits) + " supervisory visits to " + fmtNum(ov.facilities_covered) + " facilities (" +
       (sup.reporting_window || "period not recorded") + "), " + nounFor(ov.districts_covered, "district") + ", by " + nounFor(ov.monitors_involved, "monitor") + "." +
       (sup.practice_risk_flags.length ? " " + sup.practice_risk_flags[0].item + " observed in " + ratePct(sup.practice_risk_flags[0].pct) + " of visits." : "");
-
-    var scoresInsightId = "monitoring-supervisory-scores-" + (sup.reporting_window || "");
-    var bestScore = sup.composite_scores.reduce(function (b, s) { return (s.avg_pct !== null && (!b || s.avg_pct > b.avg_pct)) ? s : b; }, null);
-    var worstScore = sup.composite_scores.reduce(function (w, s) { return (s.avg_pct !== null && (!w || s.avg_pct < w.avg_pct)) ? s : w; }, null);
-    var scoresAutoInsight = (bestScore && worstScore)
-      ? "Highest-scoring category: " + bestScore.category + " (" + ratePct(bestScore.avg_pct) + " average). Lowest: " + worstScore.category + " (" + ratePct(worstScore.avg_pct) + " average)."
-      : "";
 
     var complianceInsightId = "monitoring-supervisory-compliance-" + (sup.reporting_window || "");
     var weakestItem = compItems.length ? compItems[0] : null;
@@ -2389,45 +2419,11 @@
       ? "Weakest checklist item: \"" + weakestItem.item + "\" at " + countPct(weakestItem.yes, weakestItem.answered) + " compliance."
       : "";
 
+    var topSiteType = siteTypeKeys.reduce(function (best, k) { return (!best || sup.site_type_breakdown[k] > sup.site_type_breakdown[best]) ? k : best; }, null);
     var coldChainInsightId = "monitoring-supervisory-coldchain-" + (sup.reporting_window || "");
     var coldChainAutoInsight = "Backup power was available at " + countPct(cc.backup_power_available.yes, cc.backup_power_available.answered) + " of visited sites, with " +
-      countPct(cc.stockout_last_3_months.yes, cc.stockout_last_3_months.answered) + " reporting a stockout in the last 3 months.";
-
-    var siteTypeInsightId = "monitoring-supervisory-sitetype-" + (sup.reporting_window || "");
-    var siteTypeKeys = Object.keys(sup.site_type_breakdown);
-    var siteTypeTotal = siteTypeKeys.reduce(function (s, k) { return s + sup.site_type_breakdown[k]; }, 0);
-    var topSiteType = siteTypeKeys.reduce(function (best, k) { return (!best || sup.site_type_breakdown[k] > sup.site_type_breakdown[best]) ? k : best; }, null);
-    var siteTypeAutoInsight = topSiteType ? "Most visits were to " + topSiteType + " sites (" + countPct(sup.site_type_breakdown[topSiteType], siteTypeTotal) + " of visits)." : "";
-
-    var trendInsightId = "monitoring-supervisory-trend-" + (sup.reporting_window || "");
-    var trendAutoInsight = "";
-    if (sup.daily_visit_trend.length > 1) {
-      var supTrendPeak = sup.daily_visit_trend.reduce(function (b, r) { return r.visits > b.visits ? r : b; });
-      trendAutoInsight = "Busiest day: " + supTrendPeak.visit_date + " with " + nounFor(supTrendPeak.visits, "visit") + ".";
-    }
-
-    var districtInsightId = "monitoring-supervisory-district-" + (sup.reporting_window || "");
-    var districtAutoInsight = sup.district_breakdown.length
-      ? nounFor(sup.district_breakdown.length, "district") + " covered; " + sup.district_breakdown[0].district + " received the most visits (" + fmtNum(sup.district_breakdown[0].visits) + ")."
-      : "";
-
-    var facilityInsightId = "monitoring-supervisory-facility-" + (sup.reporting_window || "");
-    var facilityAutoInsight = (rankings.top.length && rankings.bottom.length)
-      ? "Highest Operations Quality: " + rankings.top[0].health_facility + " (" + ratePct(rankings.top[0].pct) + "). Lowest: " +
-        rankings.bottom[rankings.bottom.length - 1].health_facility + " (" + ratePct(rankings.bottom[rankings.bottom.length - 1].pct) + ")."
-      : "";
-
-    var mapInsightId = "monitoring-supervisory-map-" + (sup.reporting_window || "");
-    var mapDistricts = sup.district_map ? Object.keys(sup.district_map.features) : [];
-    var mapTopDistrict = mapDistricts.reduce(function (best, name) {
-      var v = sup.district_map.features[name].visits;
-      return (!best || v > sup.district_map.features[best].visits) ? name : best;
-    }, null);
-    var mapAutoInsight = mapTopDistrict
-      ? mapTopDistrict + " had the most supervisory activity (" + nounFor(sup.district_map.features[mapTopDistrict].visits, "visit") + " to " +
-        fmtNum(sup.district_map.features[mapTopDistrict].facilities) + " facilities)." +
-        (sup.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + sup.district_map.unmapped_districts.join(", ") + "." : "")
-      : "No district data available to map.";
+      countPct(cc.stockout_last_3_months.yes, cc.stockout_last_3_months.answered) + " reporting a stockout in the last 3 months." +
+      (topSiteType ? " Most visits were to " + topSiteType + " sites (" + countPct(sup.site_type_breakdown[topSiteType], siteTypeTotal) + ")." : "");
 
     var html =
       '<div class="section-divider"><div class="line"></div><div class="label">Supervisory Checklist</div><div class="line"></div></div>' +
@@ -2438,48 +2434,15 @@
         editableInsight(overviewInsightId, overviewAutoInsight) +
         riskHtml +
       '</div>' +
-      (mapDistricts.length ? '<div class="card"><h2>🗺️ Supervisory Checklist Coverage Map</h2>' +
-        singleDistrictMapHtml("map-sup", "map-tooltip-sup", "Supervisory visits by district", "District boundaries: user-provided reference map.") +
-        editableInsight(mapInsightId, mapAutoInsight) +
-      '</div>' : "") +
-      '<div class="card"><h2>Composite Compliance Scores</h2><div class="grid kpi-row">' + scoreCards + '</div>' + serviceFunctionalityCaveat +
-        editableInsight(scoresInsightId, scoresAutoInsight) +
-      '</div>' +
       '<div class="card"><h2>Checklist Item Compliance (weakest first)</h2><div class="chart-wrap" style="height:' + Math.max(260, compItems.length * 24) + 'px;"><canvas id="chart-sup-compliance"></canvas></div>' +
         editableInsight(complianceInsightId, complianceAutoInsight) +
       '</div>' +
       '<div class="card"><h2>Cold Chain &amp; Vaccine Supply</h2><div class="grid kpi-row">' + coldChainKpis + '</div>' +
         editableInsight(coldChainInsightId, coldChainAutoInsight) +
-      '</div>' +
-      '<div class="card"><h2>Site Type</h2><div class="chart-wrap"><canvas id="chart-sup-sitetype"></canvas></div>' +
-        editableInsight(siteTypeInsightId, siteTypeAutoInsight) +
-      '</div>' +
-      (sup.daily_visit_trend.length > 1 ? '<div class="card"><h2>Daily Visit Trend</h2><div class="chart-wrap"><canvas id="chart-sup-trend"></canvas></div>' +
-        editableInsight(trendInsightId, trendAutoInsight) + '</div>' : "") +
-      '<div class="card"><h2>District-wise Composite Scores</h2>' +
-        '<div class="table-scroll"><table><thead><tr><th>District</th><th>Visits</th><th>Service Functionality</th><th>Monitoring System Quality</th><th>Operations Quality</th><th>Practices &amp; Knowledge</th></tr></thead><tbody>' + districtRowsHtml + '</tbody></table></div>' +
-        editableInsight(districtInsightId, districtAutoInsight) +
-      '</div>' +
-      '<div class="card"><h2>Facility Rankings (Operations Quality)</h2>' +
-        '<div class="grid two-col">' +
-          '<div><h3>Top 5</h3><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.top) + '</tbody></table></div></div>' +
-          '<div><h3>Bottom 5</h3><div class="table-scroll"><table><thead><tr><th>Facility</th><th>District</th><th>Score</th></tr></thead><tbody>' + facilityRankRows(rankings.bottom) + '</tbody></table></div></div>' +
-        '</div>' +
-        editableInsight(facilityInsightId, facilityAutoInsight) +
       '</div>';
 
     return { html: html, build: function () {
-      destroyChart("supCompliance"); destroyChart("supSiteType"); destroyChart("supTrend");
-
-      if (mapDistricts.length) {
-        renderSingleDistrictMap("map-sup", "map-tooltip-sup", sup.district_map,
-          function (entry) { return entry.visits; },
-          function (label, entry) {
-            return label + "<br>Supervisory visits: " + fmtNum(entry.visits) + "<br>Facilities: " + fmtNum(entry.facilities) +
-              "<br>Operations Quality: " + ratePct(entry.score_operations_quality);
-          },
-          function (name, entry) { return name + ": " + fmtNum(entry.visits); });
-      }
+      destroyChart("supCompliance");
 
       charts.supCompliance = new Chart(document.getElementById("chart-sup-compliance"), {
         type: "bar",
@@ -2491,26 +2454,36 @@
         },
         options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grace: "20%" } } }
       });
-
-      var supSiteDoughnut = doughnutData(sup.site_type_breakdown);
-      charts.supSiteType = new Chart(document.getElementById("chart-sup-sitetype"), {
-        type: "doughnut",
-        data: { labels: supSiteDoughnut.labels, datasets: [{ data: supSiteDoughnut.values, backgroundColor: supSiteDoughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom" } } }
-      });
-
-      if (sup.daily_visit_trend.length > 1) {
-        var supTrendValues = sup.daily_visit_trend.map(function (r) { return r.visits; });
-        var supTrendLabels = peakLatestLabels(supTrendValues);
-        charts.supTrend = new Chart(document.getElementById("chart-sup-trend"), {
-          type: "line",
-          data: { labels: sup.daily_visit_trend.map(function (r) { return r.visit_date; }),
-            datasets: [{ label: "Visits", data: supTrendValues, borderColor: "#b45309", backgroundColor: "#b45309", tension: 0.2,
-              pointRadius: supTrendLabels.map(function (l) { return l ? 4 : 2; }), labelText: supTrendLabels }] },
-          options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, plugins: { legend: { display: false } } }
-        });
-      }
     } };
+  }
+
+  // Rule-based scan (not a live AI call -- this dashboard is a fully
+  // offline static file) of non-blank monitor remarks/comments from both
+  // RCA and the Supervisory Checklist, tagged with district/UC, for a human
+  // reviewer to work through. RCA and Supervisory stay independent domains
+  // (never merged into one row), just listed together in one card.
+  function monitorRemarksHtml(m) {
+    var rcaRemarks = (m.rca.status === "ok" ? m.rca.monitor_remarks : []).map(function (r) {
+      return { source: "RCA", field: "Comments", district: r.district, uc: r.uc, date: r.visit_date, remark: r.remark };
+    });
+    var supRemarks = (m.supervisory.status === "ok" ? m.supervisory.monitor_remarks : []).map(function (r) {
+      return { source: "Supervisory Checklist", field: r.source_field, district: r.district, uc: r.uc, date: r.visit_date, remark: r.remark };
+    });
+    var all = rcaRemarks.concat(supRemarks);
+    if (!all.length) {
+      return '<div class="card"><h2>Key Remarks from Monitors</h2>' +
+        '<p class="sub">Non-blank remarks from RCA and Supervisory Checklist visits, tagged with district/UC.</p>' +
+        '<p class="sub">No remarks recorded in either dataset for this run.</p></div>';
+    }
+    var rows = all.map(function (r) {
+      return "<tr><td>" + escHtml(r.source) + "</td><td>" + escHtml(r.district || "") + "</td><td>" + escHtml(r.uc || "") + "</td>" +
+        "<td>" + escHtml(String(r.date || "").slice(0, 10)) + "</td><td>" + escHtml(r.field) + "</td><td>" + escHtml(r.remark) + "</td></tr>";
+    }).join("");
+    return '<div class="card"><h2>Key Remarks from Monitors</h2>' +
+      '<p class="sub">' + nounFor(all.length, "non-blank remark") + " from RCA and Supervisory Checklist visits, tagged with district/UC -- a rule-based scan, not a live AI analysis. " +
+      "Most current entries are brief acknowledgements (e.g. \"good work\") rather than substantive field observations; more detailed remarks will surface here automatically as they're recorded." + '</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Source</th><th>District</th><th>UC</th><th>Date</th><th>Field</th><th>Remark</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '</div>';
   }
 
   function renderSupervision() {
@@ -2523,7 +2496,7 @@
     }
     var rcaResult = renderRcaSection(m.rca);
     var supResult = renderSupervisorySection(m.supervisory);
-    el.innerHTML = rcaResult.html + supResult.html;
+    el.innerHTML = rcaResult.html + supResult.html + monitorRemarksHtml(m);
     wireEditableInsights(el);
     rcaResult.build();
     supResult.build();

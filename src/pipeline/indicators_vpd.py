@@ -5,6 +5,8 @@ is deliberately NOT computed here (AFP, per-population incidence rates) and why.
 """
 import pandas as pd
 
+from .config import DISTRICT_TO_BOUNDARY
+
 
 def suspected_case_count(df: pd.DataFrame, epi_week: int | None = None) -> int:
     """Count of suspected cases. With epi_week=None, this is the cumulative
@@ -102,6 +104,54 @@ def diphtheria_age_band_counts(df: pd.DataFrame) -> dict:
     return df["age_band_5yr"].value_counts(dropna=True).to_dict()
 
 
+def diphtheria_district_map(df: pd.DataFrame) -> dict:
+    """Per-boundary-polygon diphtheria case count for a district spot map,
+    same DISTRICT_TO_BOUNDARY combining/summing rule and real-0 convention as
+    rca_district_map (see its docstring) -- a raw case-count map, not an
+    incidence-rate map, since no population denominator exists for this
+    disease (see CLAUDE.md "Confirmed VPD decisions")."""
+    unmapped = sorted(set(df["district"].dropna().unique()) - set(DISTRICT_TO_BOUNDARY))
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = df[df["district"].isin(component_districts)]
+        by_boundary[boundary_name] = {
+            "component_districts": sorted(rows["district"].unique().tolist()) or component_districts,
+            "case_count": int(len(rows)),
+        }
+    return {"unmapped_districts": unmapped, "features": by_boundary}
+
+
+_DOSE_GROUP_MAP = {"Zero dose": "Zero dose", "1 dose": "1-2 doses", "2 doses": "1-2 doses", "Unknown": "Unknown"}
+DOSE_GROUP_ORDER = ["Zero dose", "1-2 doses", "3+ doses", "Unknown"]
+
+
+def _dose_group(dose_status: str) -> str:
+    return _DOSE_GROUP_MAP.get(dose_status, "3+ doses")  # "3 doses", "4 doses", etc. -> "3+ doses"
+
+
+def _age_band_sort_key(band: str):
+    return 0 if band == "<1y" else int(band.split("-")[0])
+
+
+def diphtheria_age_dose_breakdown(df: pd.DataFrame) -> dict:
+    """Diphtheria case counts by 5-year age band x DPT dose-status group
+    (Zero dose / 1-2 doses / 3+ doses / Unknown), for an age-group vs.
+    vaccination-status graph. Age bands are whatever the data actually
+    contains (see diphtheria_age_band_counts); dose groups are a coarser
+    regrouping of the existing dose_status categories (see
+    clean_vpd._dose_status) -- no new raw field, no fabricated category."""
+    work = df.dropna(subset=["age_band_5yr"]).copy()
+    work["dose_group"] = work["dose_status"].apply(_dose_group)
+    age_bands = sorted(work["age_band_5yr"].unique(), key=_age_band_sort_key)
+    counts = work.groupby(["age_band_5yr", "dose_group"]).size().to_dict()
+    return {
+        "age_bands": age_bands,
+        "dose_groups": DOSE_GROUP_ORDER,
+        "counts": {f"{band}|{grp}": int(counts.get((band, grp), 0)) for band in age_bands for grp in DOSE_GROUP_ORDER},
+    }
+
+
 def week_over_week_delta(df: pd.DataFrame, week: int) -> dict | None:
     """This week's case count vs. the immediately preceding week, for the
     bulletin's auto-generated comparison sentence. Returns None if there's no
@@ -161,6 +211,53 @@ def nnt_summary(df: pd.DataFrame, epi_week: int | None = None) -> dict:
         "deaths": int(subset["is_death"].sum()),
         "by_district": by_district,
     }
+
+
+def nnt_district_map(df: pd.DataFrame) -> dict:
+    """Per-boundary-polygon NNT case count for a district spot map, same
+    DISTRICT_TO_BOUNDARY combining/summing rule and real-0 convention as
+    rca_district_map (see its docstring)."""
+    unmapped = sorted(set(df["district"].dropna().unique()) - set(DISTRICT_TO_BOUNDARY))
+    by_boundary = {}
+    for boundary_name in sorted(set(DISTRICT_TO_BOUNDARY.values())):
+        component_districts = sorted(d for d, b in DISTRICT_TO_BOUNDARY.items() if b == boundary_name)
+        rows = df[df["district"].isin(component_districts)]
+        by_boundary[boundary_name] = {
+            "component_districts": sorted(rows["district"].unique().tolist()) or component_districts,
+            "case_count": int(len(rows)),
+        }
+    return {"unmapped_districts": unmapped, "features": by_boundary}
+
+
+def nnt_mother_vaccination_history(df: pd.DataFrame) -> dict:
+    """NNT case counts by mother's recorded TT dose count (tt_doses_mother,
+    positional column from the raw NNT line list). 0 is a real, meaningful
+    dose count here (an unvaccinated mother -- unlike delivery_place's
+    placeholder '0', see nnt_place_of_delivery), so it's kept as its own
+    category rather than treated as missing; true blanks are 'Not recorded'."""
+    def _label(v):
+        if pd.isna(v):
+            return "Not recorded"
+        if isinstance(v, (int, float)) and float(v).is_integer():
+            n = int(v)
+            return f"{n} dose" + ("" if n == 1 else "s")
+        return str(v).strip()
+    return df["tt_doses_mother"].apply(_label).value_counts(dropna=False).to_dict()
+
+
+def nnt_place_of_delivery(df: pd.DataFrame) -> dict:
+    """NNT case counts by recorded place of delivery (delivery_place,
+    positional column from the raw NNT line list). A literal '0' value in
+    the source (confirmed by inspection, alongside genuine blanks) is a
+    missing-data placeholder here -- delivery place has no '0' category, so
+    it's normalized to 'Not recorded' rather than shown as a bare 0, the same
+    'never show a placeholder 0 as a real category' rule used elsewhere in
+    this pipeline (e.g. zero-target UCs in the Coverage domain)."""
+    def _label(v):
+        if pd.isna(v) or str(v).strip() in ("0", ""):
+            return "Not recorded"
+        return str(v).strip()
+    return df["delivery_place"].apply(_label).value_counts(dropna=False).to_dict()
 
 
 # ---------------------------------------------------------------------------
@@ -460,3 +557,36 @@ def district_action_priority(df: pd.DataFrame) -> list[dict]:
     priority_order = {"Critical": 0, "Action": 1, "Monitor": 2}
     rows.sort(key=lambda r: (priority_order[r["priority"]], -r["suspected"]))
     return rows
+
+
+def measles_outbreak_alert_ucs(df: pd.DataFrame, latest_week: int, window: int = 4,
+                                min_weeks_with_cases: int = 3) -> dict:
+    """UCs with at least one confirmed measles case in `min_weeks_with_cases`
+    of the last `window` epi weeks -- a simple, deterministic case-continuity
+    rule for "ongoing active transmission" (a UC that keeps reporting
+    confirmed cases week after week, not just a single-week spike). This is
+    NOT a formal transmission-chain or genomic-linkage model -- no
+    contact-tracing or lab-sequencing data exists in this line list to build
+    one -- so it's surfaced as a rule-based screen for field follow-up, not a
+    confirmed outbreak determination. Rows with a missing UC are excluded
+    (can't attribute continuity to an unknown UC)."""
+    weeks = list(range(max(1, latest_week - window + 1), latest_week + 1))
+    confirmed = df[df["is_confirmed_measles"] & df["epi_week"].isin(weeks) & df["uc"].notna()]
+    result = {"window_weeks": weeks, "min_weeks_with_cases": min_weeks_with_cases, "ucs": []}
+    if confirmed.empty:
+        return result
+    g = confirmed.groupby(["district", "uc", "epi_week"]).size().reset_index(name="case_count")
+    pivot = g.pivot_table(index=["district", "uc"], columns="epi_week", values="case_count", fill_value=0)
+    rows = []
+    for (district, uc), row in pivot.iterrows():
+        weeks_with_cases = int((row > 0).sum())
+        if weeks_with_cases >= min_weeks_with_cases:
+            rows.append({
+                "district": district, "uc": uc,
+                "weeks_with_cases": weeks_with_cases,
+                "total_confirmed_in_window": int(row.sum()),
+                "weekly_counts": {int(w): int(row.get(w, 0)) for w in weeks},
+            })
+    rows.sort(key=lambda r: (-r["weeks_with_cases"], -r["total_confirmed_in_window"]))
+    result["ucs"] = rows
+    return result
