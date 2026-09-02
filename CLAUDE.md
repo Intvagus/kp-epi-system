@@ -253,6 +253,28 @@
     done unilaterally either. The section's own description text was
     expanded to state both of these facts explicitly, rather than leaving
     the gap unexplained for the next person reading the dashboard.
+- **Third refinement round** (WHO Supported Activities tab, done):
+  - Removed section 4, Field-Support Activity Timeline, entirely (chart,
+    insight, and the now-dead `whoTimelineHtml`/`renderWhoTimelineChart`/
+    `whoTimelineInsight` functions) -- the remaining sections renumbered
+    2→3→4→5→6→7→8 so there's no gap where section 4 used to be.
+  - "Key Insights" is now "🔎 7. Follow up action/Recommendation" and uses
+    the same `editableInsight` click-to-edit component as every other
+    narrative box on the dashboard, pre-filled with the same auto-derived
+    insights as a starting draft. This needed a small `editableInsight`
+    change: a new optional third `labelText` argument overrides the default
+    "Insight (click to edit)" caption -- rendered as a separate, non-
+    editable sibling element (a new `.insight-box-custom-label` div), never
+    inside the contenteditable box itself, since `wireEditableInsights`
+    saves that box's raw `innerText` to localStorage on blur and a label
+    living inside it would get edited and saved along with the real
+    content. Every other `editableInsight` call across the dashboard is
+    unaffected (omits the new argument, keeps the original CSS
+    `::before`-based label exactly as before).
+  - "Key WHO-Supported Results" (now section 4) gained its own editable
+    notes box (same component, empty prompt text) so findings can be added
+    or modified in place, matching the pattern already used elsewhere
+    (e.g. the Measles Outbreak Alert's province-instructions box).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

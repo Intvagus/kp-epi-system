@@ -129,6 +129,11 @@
     content: "Insight (click to edit)"; display: block; font-size: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .04em; color: var(--navy); opacity: 0.65; margin-bottom: 3px;
   }
+  .insight-box.no-default-label::before { content: none; }
+  .insight-box-custom-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--navy); opacity: 0.65; margin: 12px 0 -6px 0;
+  }
   .section-note { color: var(--text-dim); font-size: 12.5px; margin: 0 0 10px 0; }
   .period-pill {
     background: #fff; border: 1px solid var(--border); border-radius: 20px; padding: 7px 16px;
@@ -749,10 +754,21 @@
   // (where relevant) antigen, so switching tabs/antigens never shows a stale
   // edit written for a different view. Edits are per-browser/device only --
   // they do not travel with the file if it's re-shared or regenerated.
-  function editableInsight(id, autoText) {
+  // labelText overrides the default "Insight (click to edit)" caption for
+  // cases where the box holds something other than an auto-generated
+  // insight (e.g. a follow-up/recommendation box) -- rendered as a separate
+  // sibling element, never inside the contenteditable box itself, since
+  // wireEditableInsights saves that box's raw innerText verbatim and a
+  // label living inside it would get edited/saved along with the content.
+  function editableInsight(id, autoText, labelText) {
     var saved = null;
     try { saved = localStorage.getItem("epi-insight:" + id); } catch (e) {}
     var text = (saved !== null && saved !== "") ? saved : autoText;
+    if (labelText) {
+      return '<div class="insight-box-custom-label">' + escHtml(labelText) + '</div>' +
+        '<div class="insight-box no-default-label" contenteditable="true" spellcheck="false" data-insight-id="' + id + '" ' +
+        'title="Click to edit this note">' + escHtml(text) + '</div>';
+    }
     return '<div class="insight-box" contenteditable="true" spellcheck="false" data-insight-id="' + id + '" ' +
       'title="Click to edit this note">' + escHtml(text) + '</div>';
   }
@@ -2637,47 +2653,15 @@
     '</div>';
   }
 
-  function whoTimelineInsight(w) {
-    if (!w.timeline.length) return "No dated evidence findings available to plot.";
-    var monthOnly = w.kpis.evidence_record_count - w.timeline.length;
-    return nounFor(w.timeline.length, "evidence finding") + " " + plural(w.timeline.length, "has", "have") +
-      " a specific date within " + w.reporting_period_label + ", from " + w.timeline[0].date + " to " + w.timeline[w.timeline.length - 1].date + "." +
-      (monthOnly > 0 ? " " + nounFor(monthOnly, "record") + " " + plural(monthOnly, "covers", "cover") + " the whole month without a specific day and " +
-        plural(monthOnly, "isn't", "aren't") + " plotted here." : "") +
-      " A month-over-month trend is not available yet -- only one reporting period has been received so far.";
-  }
-
-  function renderWhoTimelineChart(w) {
-    destroyChart("whoTimeline");
-    var canvas = document.getElementById("chart-who-timeline");
-    if (!canvas || !w.timeline.length) return;
-    var counts = {};
-    w.timeline.forEach(function (t) { counts[t.date] = (counts[t.date] || 0) + 1; });
-    var dates = Object.keys(counts).sort();
-    var values = dates.map(function (d) { return counts[d]; });
-    charts.whoTimeline = new Chart(canvas, {
-      type: "bar",
-      data: { labels: dates, datasets: [{ label: "Evidence findings", data: values, backgroundColor: "#5b7fd6", labelText: values.map(fmtNum) }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { y: { ticks: { stepSize: 1, precision: 0 }, grace: "25%" }, x: { ticks: { font: { size: 10 } } } } }
-    });
-  }
-
-  function whoTimelineHtml(w) {
-    return '<div class="card"><h2>📈 4. Field-Support Activity Timeline (' + escHtml(w.reporting_period_label) + ')</h2>' +
-      '<div class="chart-wrap tall"><canvas id="chart-who-timeline"></canvas></div>' +
-      editableInsight("who-timeline-" + w.reporting_period_label, whoTimelineInsight(w)) +
-    '</div>';
-  }
-
   function whoKeyResultsHtml(w) {
     var resultRows = w.key_results.map(function (r) {
       return "<tr><td style=\"font-weight:600;white-space:nowrap;\">" + escHtml(r.theme) + "</td><td>" + escHtml(r.narrative) + "</td></tr>";
     }).join("");
     var contribItems = w.who_contributions.map(function (c) { return "<li>" + escHtml(c.replace(/^[•\s]+/, "")) + "</li>"; }).join("");
-    return '<div class="card"><h2>📋 5. Key WHO-Supported Results</h2>' +
+    return '<div class="card"><h2>📋 4. Key WHO-Supported Results</h2>' +
       '<div class="table-scroll"><table><thead><tr><th>Theme</th><th>Narrative Result</th></tr></thead><tbody>' + resultRows + '</tbody></table></div>' +
       '<h3 style="margin-top:14px;">WHO Contribution / Action</h3><ul class="plain-list">' + contribItems + '</ul>' +
+      editableInsight("who-keyresults-notes-" + w.reporting_period_label, "Click to add or modify findings for this section.") +
     '</div>';
   }
 
@@ -2686,19 +2670,21 @@
     var cards = filtered.map(function (d) {
       return '<div class="district-highlight-card"><h4>' + escHtml(d.district) + '</h4><p>' + escHtml(d.narrative) + '</p></div>';
     }).join("");
-    return '<div class="card"><h2>📍 6. District-Level Highlights</h2>' +
+    return '<div class="card"><h2>📍 5. District-Level Highlights</h2>' +
       '<div class="district-highlight-grid">' + (cards || '<p class="sub">No district-level highlights match the current filter.</p>') + '</div>' +
     '</div>';
   }
 
   function whoPriorityGapsHtml(w) {
     var items = w.priority_gaps.map(function (g) { return "<li>" + escHtml(g.replace(/^[•\s]+/, "")) + "</li>"; }).join("");
-    return '<div class="card"><h2>⚠ 7. Priority System Gaps / Way Forward</h2><ul class="plain-list">' + items + '</ul></div>';
+    return '<div class="card"><h2>⚠ 6. Priority System Gaps / Way Forward</h2><ul class="plain-list">' + items + '</ul></div>';
   }
 
   function whoInsightsHtml(w) {
-    var items = w.insights.map(function (i) { return "<li>" + escHtml(i) + "</li>"; }).join("");
-    return '<div class="card"><h2>🔎 8. Key Insights</h2><ul class="plain-list">' + items + '</ul></div>';
+    var autoText = w.insights.join(" ");
+    return '<div class="card"><h2>🔎 7. Follow up action/Recommendation</h2>' +
+      editableInsight("who-insights-" + w.reporting_period_label, autoText, "Follow up action/Recommendation (click to edit)") +
+    '</div>';
   }
 
   function whoManagementMessageHtml(w) {
@@ -2721,7 +2707,7 @@
         "<td>" + escHtml(r.activity_theme) + "</td><td>" + escHtml(r.activity) + "</td><td>" + escHtml(r.quantified_result) + "</td>" +
         "<td>" + escHtml(r.who_contribution) + "</td></tr>";
     }).join("");
-    return '<div class="card"><h2>📄 9. Detailed Evidence Table</h2>' +
+    return '<div class="card"><h2>📄 8. Detailed Evidence Table</h2>' +
       '<p class="section-note">' + fmtNum(rows.length) + " of " + fmtNum(w.evidence_records.length) + " evidence records shown" + (isFiltered ? " (filtered)" : "") + ".</p>" +
       '<div class="controls-row"><input type="text" class="search-box" placeholder="Search activity, result, district..." id="who-search" value="' + escHtml(state.whoSearch) + '">' +
         (state.whoSearch ? '<span class="print-only-filter">Search: &ldquo;' + escHtml(state.whoSearch) + '&rdquo;</span>' : "") +
@@ -2755,7 +2741,6 @@
         editableInsight("who-theme-" + w.reporting_period_label, whoThemeInsight(w)) +
       '</div>' +
       whoGeoHtml(w) +
-      whoTimelineHtml(w) +
       whoKeyResultsHtml(w) +
       whoDistrictHighlightsHtml(w) +
       whoPriorityGapsHtml(w) +
@@ -2769,7 +2754,6 @@
       function (e) { return e.evidence_count; },
       function (name, e) { return name + "<br>Evidence records: " + fmtNum(e.evidence_count); },
       function (name, e) { return name + ": " + fmtNum(e.evidence_count); });
-    renderWhoTimelineChart(w);
 
     document.getElementById("who-district-filter").addEventListener("change", function (e) {
       state.whoDistrict = e.target.value; renderWhoActivities();
