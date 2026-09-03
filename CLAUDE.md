@@ -487,6 +487,43 @@
   `test_summary_counts_match_source`); all 20 tests still pass, including
   the ones asserting every cell is still unanswered placeholder text (still
   true -- only the column headers changed, not any cell's answer state).
+- **Overview tab rebuilt as a full executive-overview stack** (done): the
+  user shared a screenshot of the existing "Measles & Rubella" KPI-card
+  section (from the VPD Surveillance tab) as the pattern to replicate for
+  every domain in the Overview tab. `renderOtherTabSummaries()` now renders,
+  in a fixed order: Service Delivery Summary (existing prose, unchanged) ->
+  a new combined "Monitoring and Supervision — Executive Overview" card
+  (RCA's KPI row + Supervisory's KPI row together, replacing the old
+  separate "RCA Summary"/"Supervisory Checklist Summary" prose cards) ->
+  VPD Surveillance Summary (existing prose, unchanged) -> Measles & Rubella
+  KPI row -> Diphtheria KPI row -> Pertussis KPI row -> Neonatal Tetanus KPI
+  row -> WHO Supported Activities KPI row -> Admin Activities KPI row. Per
+  the user's explicit instruction, the new sections are numbers-only (no
+  new prose insight) -- exactly the same headline KPI cards already shown
+  on that domain's own tab, not a rewritten summary.
+  Structurally guarantees the Overview numbers can never drift from each
+  domain's own tab: every KPI-card block that used to be built inline
+  inside `renderSurveillance()`/`renderRcaSection()`/
+  `renderSupervisorySection()`/`renderAdminActivities()` was first factored
+  out into a shared function (`mslKpiRow`, `diphtheriaKpiRow`,
+  `pertussisKpiRow`, `nntKpiRow`, `rcaKpiRow`, `supervisoryKpiRow`,
+  `adminActivitiesKpiRow`; `whoKpiRow` already existed), and BOTH the
+  original tab and the new Overview card call the same function -- verified
+  by comparing the Diphtheria KPI values rendered on the Service Delivery
+  tab against the Overview tab byte-for-byte (167/35/91.6%/80.8%/1, exact
+  match). The `#overview-tab-summaries` container switched from a `two-col`
+  grid to a single-column stack (KPI-row cards need full width to lay out
+  legibly) and its heading was renamed to "Executive Overview — All
+  Sections". Two new CSS color variables added (`--who`, `--admin`) so the
+  new WHO/Admin Activities cards get the same colored `disease-tag`
+  treatment as every other domain card. Every new section independently
+  gated on its own domain's data-available status (same per-domain
+  independence rule as everywhere else) -- an Admin-Activities-only upload
+  still shows every other section's "awaiting data" gap correctly, nothing
+  fabricated. Verified with a Playwright sweep (zero console errors across
+  all 6 tabs) and a PPT export check of the Overview tab (13 slides, none
+  empty). 169/171 tests passing (the same 2 pre-existing sandbox-only
+  Playwright bulletin-PDF failures as every prior round, unrelated).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

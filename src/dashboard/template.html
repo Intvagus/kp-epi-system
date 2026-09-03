@@ -28,6 +28,8 @@
     --nnt: #d97706;
     --rca: #0f766e;
     --supervisory: #b45309;
+    --who: #0891b2;
+    --admin: #64748b;
   }
   * { box-sizing: border-box; }
   body {
@@ -404,7 +406,7 @@
     if (!prov) {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
         'No Service Delivery data uploaded yet. See the Service Delivery tab (which also covers Monitoring &amp; Supervision), or the VPD Surveillance tab if that\'s what was uploaded.</div></div>' +
-        '<h3 class="tab-summaries-heading">Other Tabs at a Glance</h3><div id="overview-tab-summaries" class="grid two-col"></div>';
+        '<h3 class="tab-summaries-heading">Executive Overview — All Sections</h3><div id="overview-tab-summaries" class="grid"></div>';
       renderOtherTabSummaries();
       return;
     }
@@ -435,7 +437,7 @@
         '<div class="card"><h2>UC Category Breakdown</h2><div class="chart-wrap"><canvas id="chart-category"></canvas></div></div>' +
       '</div>' +
       '<div class="card"><h2>Districts Ranked by FIC Coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>' +
-      '<h3 class="tab-summaries-heading">Other Tabs at a Glance</h3><div id="overview-tab-summaries" class="grid two-col"></div>';
+      '<h3 class="tab-summaries-heading">Executive Overview — All Sections</h3><div id="overview-tab-summaries" class="grid"></div>';
 
     destroyChart("cascade"); destroyChart("category"); destroyChart("ficRank");
 
@@ -490,6 +492,21 @@
   // calculation, just a shorter read of it. Each shares its insight-box ID
   // with the source tab's own overview insight, so editing either updates
   // the same saved note. ----
+  // Executive-overview stack: one card per domain, in a fixed narrative
+  // order (Service Delivery -> Monitoring & Supervision -> VPD Surveillance
+  // -> each VPD disease -> WHO Supported Activities -> Admin Activities).
+  // Coverage and VPD keep their existing short prose summaries (each
+  // section's own auto-generated insight, still editable); every other
+  // section here is deliberately numbers-only -- the same headline KPI
+  // cards already shown on that section's own tab (via the shared
+  // *KpiRow functions above), not a re-written prose summary, per the
+  // user's explicit instruction. A domain with no data simply contributes
+  // no card, same independence rule as everywhere else in this dashboard.
+  function kpiRowCard(title, colorVar, kpiHtml) {
+    return '<div class="card"><h2><span class="disease-tag" style="background:var(--' + colorVar + ');"></span>' + title + '</h2>' +
+      '<div class="grid kpi-row">' + kpiHtml + '</div></div>';
+  }
+
   function renderOtherTabSummaries() {
     var el = document.getElementById("overview-tab-summaries");
     if (!el) return;
@@ -507,6 +524,19 @@
       }
     }
 
+    var m = DATA.monitoring;
+    if (m.rca.status === "ok" || m.supervisory.status === "ok") {
+      var monHtml = '<div class="card"><h2>🩺 Monitoring and Supervision — Executive Overview</h2>';
+      if (m.rca.status === "ok") {
+        monHtml += '<h3>RCA — Rapid Convenience Assessment</h3><div class="grid kpi-row">' + rcaKpiRow(m.rca) + '</div>';
+      }
+      if (m.supervisory.status === "ok") {
+        monHtml += '<h3' + (m.rca.status === "ok" ? ' style="margin-top:14px;"' : '') + '>Supervisory Checklist</h3><div class="grid kpi-row">' + supervisoryKpiRow(m.supervisory) + '</div>';
+      }
+      monHtml += '</div>';
+      cards.push(monHtml);
+    }
+
     var v = DATA.vpd;
     if (v.status !== "awaiting_data") {
       var msl = v.msl;
@@ -519,28 +549,24 @@
         "Also reported YTD: " + nounFor(v.diphtheria.ytd.case_count, "diphtheria case") + " and " + nounFor(v.nnt.ytd.case_count, "neonatal tetanus case") + ".";
       cards.push('<div class="card"><h2>🦠 VPD Surveillance Summary</h2>' +
         editableInsight("vpd-tab-overview-" + v.latest_epi_week, vpdSummary) + '</div>');
+
+      cards.push(kpiRowCard("Measles &amp; Rubella (weeks 1-" + v.latest_epi_week + ")", "measles", mslKpiRow(v)));
+      cards.push(kpiRowCard("Diphtheria", "diphtheria", diphtheriaKpiRow(v)));
+      cards.push(kpiRowCard("Pertussis", "pertussis", pertussisKpiRow(v)));
+      cards.push(kpiRowCard("Neonatal Tetanus (NNT)", "nnt", nntKpiRow(v)));
     }
 
-    var m = DATA.monitoring;
-    if (m.rca.status === "ok") {
-      var rov = m.rca.overview, rzd = m.rca.zero_dose;
-      var rcaSummary = nounFor(rov.total_children_assessed, "child", "children") + " assessed across " + nounFor(rov.total_rca_visits, "RCA visit") +
-        " in " + nounFor(rov.districts_covered, "district") + ". " + nounFor(rzd.zero_dose_count, "zero-dose child", "zero-dose children") +
-        " identified (" + fmtPct(rzd.zero_dose_pct) + " of " + fmtNum(rzd.assessed_count) + " assessed for Penta1).";
-      cards.push('<div class="card"><h2>🔍 RCA Summary</h2>' +
-        editableInsight("monitoring-rca-summary-" + (m.rca.reporting_window || ""), rcaSummary) + '</div>');
-    }
-    if (m.supervisory.status === "ok") {
-      var sov = m.supervisory.overview;
-      var weakestItem2 = m.supervisory.compliance_items.length ? m.supervisory.compliance_items[0] : null;
-      var supSummary = nounFor(sov.total_visits, "supervisory visit") + " to " + nounFor(sov.facilities_covered, "facility", "facilities") +
-        " in " + nounFor(sov.districts_covered, "district") + "." +
-        (weakestItem2 ? " Weakest checklist item: \"" + weakestItem2.item + "\" at " + countPct(weakestItem2.yes, weakestItem2.answered) + " compliance." : "");
-      cards.push('<div class="card"><h2>✅ Supervisory Checklist Summary</h2>' +
-        editableInsight("monitoring-supervisory-summary-" + (m.supervisory.reporting_window || ""), supSummary) + '</div>');
+    var w = DATA.who_activities;
+    if (w.status === "ok") {
+      cards.push(kpiRowCard("WHO Supported Activities — " + escHtml(w.reporting_period_label), "who", whoKpiRow(w)));
     }
 
-    el.innerHTML = cards.length ? cards.join("") : '<div class="card"><p class="sub">No VPD Surveillance or Monitoring &amp; Supervision data uploaded yet -- their summaries will appear here once available.</p></div>';
+    var a = DATA.admin_activities;
+    if (a.status === "ok") {
+      cards.push(kpiRowCard("Admin Activities", "admin", adminActivitiesKpiRow(a)));
+    }
+
+    el.innerHTML = cards.length ? cards.join("") : '<div class="card"><p class="sub">No VPD Surveillance, Monitoring &amp; Supervision, WHO Supported Activities, or Admin Activities data uploaded yet -- their executive overviews will appear here once available.</p></div>';
     wireEditableInsights(el);
   }
 
@@ -1596,6 +1622,73 @@
       (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
   }
 
+  // ---- Shared per-domain KPI-row builders -----------------------------
+  // Each of these is the single source of truth for one domain's headline
+  // KPI cards -- called both from that domain's own tab AND from the
+  // Overview tab's executive-overview stack (renderOtherTabSummaries), so
+  // the two views are structurally incapable of disagreeing (same
+  // never-recompute-independently principle as every pipeline figure).
+  function mslKpiRow(v) {
+    var msl = v.msl;
+    return [
+      diseaseKpiCard("Suspected (YTD)", fmtNum(msl.suspected_ytd), "Weeks 1-" + v.latest_epi_week),
+      diseaseKpiCard("Suspected (latest week)", fmtNum(msl.suspected_latest_week), "Epi week " + v.latest_epi_week),
+      diseaseKpiCard("Measles confirmed (YTD)", fmtNum(msl.classification_breakdown["Laboratory Confirmed Measles"] || 0), ""),
+      diseaseKpiCard("Rubella confirmed (YTD)", fmtNum((msl.classification_breakdown["Laboratory Confirmed Measles and Rubella"] || 0) + (msl.classification_breakdown["Clinically Compatible Rubella"] || 0)), "incl. double infection"),
+      diseaseKpiCard("Sample collection rate", fmtPct(msl.sample_collection_rate_pct), ""),
+      diseaseKpiCard("Sample adequacy rate", fmtPct(msl.sample_adequacy_rate_pct), "of collected samples"),
+      diseaseKpiCard("Reporting HFs", fmtNum(msl.reporting_footprint.reporting_health_facilities), ""),
+      diseaseKpiCard("Reporting UCs", fmtNum(msl.reporting_footprint.reporting_ucs), "of " + msl.reporting_footprint.reporting_districts + " districts"),
+    ].join("");
+  }
+
+  function diphtheriaKpiRow(v) {
+    var diph = v.diphtheria;
+    return [
+      diseaseKpiCard("Cases (YTD)", fmtNum(diph.ytd.case_count), diph.ytd.districts_affected + " districts affected"),
+      diseaseKpiCard("Lab confirmed", fmtNum(diph.ytd.lab_confirmed_count), ""),
+      diseaseKpiCard("No DPT history", fmtPct(diph.ytd.pct_no_dpt_history), ""),
+      diseaseKpiCard("Aged 5+", fmtPct(diph.ytd.pct_aged_5_plus), ""),
+      diseaseKpiCard("Deaths", fmtNum(diph.ytd.deaths), ""),
+    ].join("");
+  }
+
+  function pertussisKpiRow(v) {
+    var pert = v.pertussis;
+    var totalFromDistricts = pert.district_breakdown.reduce(function (s, r) { return s + r.case_count; }, 0);
+    var missingDistrict = pert.total_cases - totalFromDistricts;
+    return [diseaseKpiCard("Suspected Pertussis", fmtNum(pert.total_cases),
+      missingDistrict > 0 ? nounFor(missingDistrict, "case") + " " + plural(missingDistrict, "has", "have") + " no recorded district" : "")].join("");
+  }
+
+  function nntKpiRow(v) {
+    var nnt = v.nnt;
+    return [
+      diseaseKpiCard("Cases", fmtNum(nnt.ytd.case_count), ""),
+      diseaseKpiCard("Deaths", fmtNum(nnt.ytd.deaths), ""),
+    ].join("");
+  }
+
+  function rcaKpiRow(rca) {
+    var ov = rca.overview, zd = rca.zero_dose;
+    return [
+      monitoringKpiCard("Children assessed", fmtNum(ov.total_children_assessed), rca.reporting_window || ""),
+      monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), nounFor(ov.districts_covered, "district")),
+      monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1 (of " + fmtNum(ov.total_children_assessed) + " children assessed overall)"),
+      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
+    ].join("");
+  }
+
+  function supervisoryKpiRow(sup) {
+    var ov = sup.overview;
+    return [
+      monitoringKpiCard("Supervisory visits", fmtNum(ov.total_visits), sup.reporting_window || ""),
+      monitoringKpiCard("Facilities covered", fmtNum(ov.facilities_covered), nounFor(ov.districts_covered, "district")),
+      monitoringKpiCard("Fixed-site-open rate", ratePct(sup.fixed_site_open_rate.pct), sup.fixed_site_open_rate.answered + " fixed-site visits checked"),
+      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
+    ].join("");
+  }
+
   // ---- Key Surveillance Indicators (from the separate Measles Indicator
   // Sheet workbook, independent of the MSL line list) ----
   function indicatorSheetDistrictTableHtml(ki) {
@@ -1705,16 +1798,7 @@
     var dq = msl.data_quality;
 
     // ---- Surveillance KPI row ----
-    var mslKpis = [
-      diseaseKpiCard("Suspected (YTD)", fmtNum(msl.suspected_ytd), "Weeks 1-" + v.latest_epi_week),
-      diseaseKpiCard("Suspected (latest week)", fmtNum(msl.suspected_latest_week), "Epi week " + v.latest_epi_week),
-      diseaseKpiCard("Measles confirmed (YTD)", fmtNum(msl.classification_breakdown["Laboratory Confirmed Measles"] || 0) , ""),
-      diseaseKpiCard("Rubella confirmed (YTD)", fmtNum((msl.classification_breakdown["Laboratory Confirmed Measles and Rubella"] || 0) + (msl.classification_breakdown["Clinically Compatible Rubella"] || 0)), "incl. double infection"),
-      diseaseKpiCard("Sample collection rate", fmtPct(msl.sample_collection_rate_pct), ""),
-      diseaseKpiCard("Sample adequacy rate", fmtPct(msl.sample_adequacy_rate_pct), "of collected samples"),
-      diseaseKpiCard("Reporting HFs", fmtNum(msl.reporting_footprint.reporting_health_facilities), ""),
-      diseaseKpiCard("Reporting UCs", fmtNum(msl.reporting_footprint.reporting_ucs), "of " + msl.reporting_footprint.reporting_districts + " districts"),
-    ].join("");
+    var mslKpis = mslKpiRow(v);
 
     var classRows = Object.keys(msl.classification_breakdown).sort(function (a, b) {
       return msl.classification_breakdown[b] - msl.classification_breakdown[a];
@@ -1780,18 +1864,11 @@
       nounFor(dq.lab_confirmed_dose_validation.two_dose_count, "lab-confirmed case") + " " + plural(dq.lab_confirmed_dose_validation.two_dose_count, "had", "had") + " 2 prior vaccine doses recorded, and " + nounFor(dq.lab_confirmed_dose_validation.one_dose_count, "case") + " had 1 -- MCV is highly effective, so these merit field validation rather than being taken at face value.",
     ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
 
-    var diphKpis = [
-      diseaseKpiCard("Cases (YTD)", fmtNum(diph.ytd.case_count), diph.ytd.districts_affected + " districts affected"),
-      diseaseKpiCard("Lab confirmed", fmtNum(diph.ytd.lab_confirmed_count), ""),
-      diseaseKpiCard("No DPT history", fmtPct(diph.ytd.pct_no_dpt_history), ""),
-      diseaseKpiCard("Aged 5+", fmtPct(diph.ytd.pct_aged_5_plus), ""),
-      diseaseKpiCard("Deaths", fmtNum(diph.ytd.deaths), ""),
-    ].join("");
+    var diphKpis = diphtheriaKpiRow(v);
 
     var pertRowsHtml = pert.district_breakdown.slice().sort(function (a, b) { return b.case_count - a.case_count; })
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
-    var pertTotalFromDistricts = pert.district_breakdown.reduce(function (s, r) { return s + r.case_count; }, 0);
-    var pertMissingDistrict = pert.total_cases - pertTotalFromDistricts;
+    var pertKpis = pertussisKpiRow(v);
     var pertMapDistricts = pert.district_map ? Object.keys(pert.district_map.features) : [];
     var pertMapTop = pertMapDistricts.reduce(function (best, name) {
       return (!best || pert.district_map.features[name].case_count > pert.district_map.features[best].case_count) ? name : best;
@@ -1801,10 +1878,7 @@
         (pert.district_map.unmapped_districts.length ? " Not shown on map (no boundary match): " + pert.district_map.unmapped_districts.join(", ") + "." : "")
       : "No district-level pertussis case data available to map.";
 
-    var nntKpis = [
-      diseaseKpiCard("Cases", fmtNum(nnt.ytd.case_count), ""),
-      diseaseKpiCard("Deaths", fmtNum(nnt.ytd.deaths), ""),
-    ].join("");
+    var nntKpis = nntKpiRow(v);
     var nntRowsHtml = nnt.by_district_ytd.slice().sort(function (a, b) { return b.case_count - a.case_count; })
       .map(function (r) { return "<tr><td>" + escHtml(r.district) + "</td><td>" + fmtNum(r.case_count) + "</td></tr>"; }).join("");
 
@@ -1998,7 +2072,7 @@
         editableInsight("vpd-diph-map-" + v.latest_epi_week, diphMapAutoInsight) +
       '</div>' : "") +
       '<div class="card"><h2><span class="disease-tag" style="background:var(--pertussis);"></span>Pertussis</h2>' +
-        '<div class="grid kpi-row">' + [diseaseKpiCard("Suspected Pertussis", fmtNum(pert.total_cases), pertMissingDistrict > 0 ? nounFor(pertMissingDistrict, "case") + " " + plural(pertMissingDistrict, "has", "have") + " no recorded district" : "")].join("") + '</div>' +
+        '<div class="grid kpi-row">' + pertKpis + '</div>' +
         '<div class="table-scroll"><table><thead><tr><th>District</th><th>Cases</th></tr></thead><tbody>' + pertRowsHtml + '</tbody></table></div>' +
       '</div>' +
       (pertMapDistricts.length ? '<div class="card"><h2>🗺️ Pertussis Cases by District</h2>' +
@@ -2272,12 +2346,7 @@
         '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(rca.message) + '</div></div>';
     }
     var ov = rca.overview, zd = rca.zero_dose;
-    var kpis = [
-      monitoringKpiCard("Children assessed", fmtNum(ov.total_children_assessed), rca.reporting_window || ""),
-      monitoringKpiCard("RCA visits", fmtNum(ov.total_rca_visits), nounFor(ov.districts_covered, "district")),
-      monitoringKpiCard("Zero-dose children", fmtNum(zd.zero_dose_count), fmtPct(zd.zero_dose_pct) + " of " + fmtNum(zd.assessed_count) + " assessed for Penta1 (of " + fmtNum(ov.total_children_assessed) + " children assessed overall)"),
-      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
-    ].join("");
+    var kpis = rcaKpiRow(rca);
 
     var zdAnomalyHtml = "";
     if (zd.zero_dose_count > 0) {
@@ -2466,12 +2535,7 @@
         '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(sup.message) + '</div></div>', build: function () {} };
     }
     var ov = sup.overview;
-    var kpis = [
-      monitoringKpiCard("Supervisory visits", fmtNum(ov.total_visits), sup.reporting_window || ""),
-      monitoringKpiCard("Facilities covered", fmtNum(ov.facilities_covered), nounFor(ov.districts_covered, "district")),
-      monitoringKpiCard("Fixed-site-open rate", ratePct(sup.fixed_site_open_rate.pct), sup.fixed_site_open_rate.answered + " fixed-site visits checked"),
-      monitoringKpiCard("Monitors involved", fmtNum(ov.monitors_involved), ""),
-    ].join("");
+    var kpis = supervisoryKpiRow(sup);
 
     var riskHtml = "";
     if (sup.practice_risk_flags.length) {
@@ -3003,6 +3067,21 @@
     };
   }
 
+  // s (a prior adminChecklistSummary(a) result) is optional -- the caller
+  // may already have one on hand (renderAdminActivities does, for its
+  // by-officer table); the Overview tab's executive-overview stack doesn't
+  // and just lets this compute its own.
+  function adminActivitiesKpiRow(a, s) {
+    s = s || adminChecklistSummary(a);
+    return [
+      kpiCard("Total Tasks Tracked", fmtNum(a.task_count), "Administrative responsibilities in the checklist"),
+      kpiCard("Officers Tracked", fmtNum(a.officer_count), a.officer_labels.join(", ")),
+      kpiCard("Items Marked", fmtNum(s.marked), "of " + fmtNum(s.totalCells) + " entries (" + a.task_count + " tasks × " + a.officer_count + " officers)"),
+      kpiCard("Compliance Rate", s.compliancePct === null ? "—" : fmtPct(s.compliancePct), s.compliancePct === null ? "No Yes/No entries marked yet" : fmtNum(s.yes) + " Yes of " + fmtNum(s.yes + s.no) + " Yes/No entries (N/A excluded)"),
+      kpiCard("Not Yet Marked", fmtNum(s.notMarked), "of " + fmtNum(s.totalCells) + " entries"),
+    ].join("");
+  }
+
   function renderAdminActivities() {
     var el = document.getElementById("tab-admin");
     var a = DATA.admin_activities;
@@ -3013,13 +3092,7 @@
     }
 
     var s = adminChecklistSummary(a);
-    var kpis = [
-      kpiCard("Total Tasks Tracked", fmtNum(a.task_count), "Administrative responsibilities in the checklist"),
-      kpiCard("Officers Tracked", fmtNum(a.officer_count), a.officer_labels.join(", ")),
-      kpiCard("Items Marked", fmtNum(s.marked), "of " + fmtNum(s.totalCells) + " entries (" + a.task_count + " tasks × " + a.officer_count + " officers)"),
-      kpiCard("Compliance Rate", s.compliancePct === null ? "—" : fmtPct(s.compliancePct), s.compliancePct === null ? "No Yes/No entries marked yet" : fmtNum(s.yes) + " Yes of " + fmtNum(s.yes + s.no) + " Yes/No entries (N/A excluded)"),
-      kpiCard("Not Yet Marked", fmtNum(s.notMarked), "of " + fmtNum(s.totalCells) + " entries"),
-    ].join("");
+    var kpis = adminActivitiesKpiRow(a, s);
 
     var officerRows = a.officer_labels.map(function (o) {
       var b = s.byOfficer[o];
