@@ -406,15 +406,17 @@
 - **Part 1e (Admin Activities)**: done, but with a different data shape than
   every other domain -- worth reading in full before touching this code.
   The source file received (`data/raw/Admin_Activities_Checklist.xlsx`, 1
-  sheet, 21 rows x 6 columns) is a **blank per-officer administrative
+  sheet, originally 21 rows x 6 columns, now 21 rows x 8 columns -- see the
+  officer-rename note below) is a **blank per-officer administrative
   compliance checklist template**, not a case-level or activity-log
   dataset: 20 fixed administrative responsibilities (Logbook Submission,
   Monthly Report Submission/Compliance, DSO Mobility Claims, Financial/
   Payment Documentation, Procurement Requests, Programme Section Support,
-  etc.) x 4 officer columns (`Officer 1`..`Officer 4`), plus a `Remarks /
-  Evidence` column. Confirmed by direct cell-level inspection (values,
-  fill colors, comments -- nothing hidden): every one of the 80 officer
-  cells literally contains the instructional string `"Yes/No/NA"` (telling
+  etc.) x originally 4 generic officer columns (`Officer 1`..`Officer 4`),
+  plus a `Remarks / Evidence` column. Confirmed by direct cell-level
+  inspection (values, fill colors, comments -- nothing hidden): every one
+  of the officer cells literally contains the instructional string
+  `"Yes/No/NA"` (telling
   whoever fills the sheet what to type), not a real answer, and every
   `Remarks / Evidence` cell holds a fixed descriptor of what evidence each
   task expects (e.g. `"Monthly"`, `"Quality & completeness"`), not an
@@ -443,7 +445,7 @@
   client's explicit nav-order instruction): 5 KPI cards (Total Tasks
   Tracked, Officers Tracked, Items Marked, Compliance Rate, Not Yet Marked),
   a status-distribution doughnut (Yes/No/N-A/Not yet marked), a By-Officer
-  compliance table, and the full 20 x 4 checklist as real `<select>`
+  compliance table, and the full task x officer checklist as real `<select>`
   dropdowns (Yes/No/N-A) plus a "Reset checklist" button and an editable
   summary insight box -- every KPI/chart is computed live, client-side, from
   whatever has actually been selected. Selections are saved to this
@@ -453,15 +455,38 @@
   has no time trend, geographic map, or activity-type chart -- none of
   those fields exist in the source, so none are fabricated; the tab's own
   description text says so explicitly rather than leaving the gap
-  unexplained. KPIs correctly read "0 marked / 80 not yet marked" and a
-  "—" compliance rate on first load, which is the honest starting state,
-  not a defect. 20 new tests in `tests/test_admin_activities.py`, including
+  unexplained. KPIs correctly read "0 marked" and every entry "not yet
+  marked" and a "—" compliance rate on first load, which is the honest
+  starting state, not a defect. 20 new tests in `tests/test_admin_activities.py`, including
   one asserting every source officer cell normalizes to "unanswered" (never
   a fabricated Yes/No/N-A) and a parametrized table for
   `_normalize_officer_cell()`'s placeholder-vs-real-answer logic. Verified
   with a Playwright sweep (nav order, zero console errors across all 6
   tabs, live KPI recompute on dropdown change, localStorage persistence
   across reload) and a PPT export check (5 slides, none empty).
+- **Admin Activities officer rename** (done): the user provided the 6 real
+  officer names to use in place of the 4 generic `Officer 1`..`Officer 4`
+  placeholder labels: Dr Imtiaz Ali, Dr Imran Khan, Dr Haroon Ur Rashid,
+  Dr Kazi Taimoor, Dr Sohrab Ali, Dr Asad Baig. Since 6 names didn't fit 4
+  existing columns, asked which was intended (`AskUserQuestion`) -- user
+  chose to expand to 6 officer columns rather than dropping 2 of the names
+  or renaming only the first 4. Implemented by editing
+  `data/raw/Admin_Activities_Checklist.xlsx` directly (`openpyxl`:
+  `insert_cols` for the 2 new officer columns, header row set to the 6 real
+  names, new cells filled with the same `"Yes/No/NA"` placeholder text as
+  every other officer cell, `Remarks / Evidence` shifted to the new last
+  column) -- **no pipeline code change was needed**, since
+  `admin_activities.py` already reads officer labels/count dynamically from
+  the header row rather than hardcoding 4 (see Part 1e above). Confirmed
+  end-to-end: `run_admin_activities()` now reports "20 tasks x 6 officers"
+  with the 6 real names as `officer_labels`, and the dashboard tab renders
+  6 officer dropdown columns and a 6-row By-Officer table with zero code
+  changes to `template.html`. Two tests in `test_admin_activities.py` that
+  pinned the old 4-generic-name/count values were updated to the new real
+  names/count (`test_officer_columns_match_source`,
+  `test_summary_counts_match_source`); all 20 tests still pass, including
+  the ones asserting every cell is still unanswered placeholder text (still
+  true -- only the column headers changed, not any cell's answer state).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

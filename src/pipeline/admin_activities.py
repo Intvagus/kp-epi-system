@@ -1,18 +1,24 @@
 """Read the "Admin Activities" workbook -- a per-officer administrative
-compliance checklist (20 fixed administrative responsibilities x 4 officer
-columns, e.g. logbook/report submission, claims processing, procurement,
-record management), not a case-level or activity-log dataset like every
-other domain in this project.
+compliance checklist (20 fixed administrative responsibilities x 6 named
+officer columns, e.g. logbook/report submission, claims processing,
+procurement, record management), not a case-level or activity-log dataset
+like every other domain in this project.
 
-Confirmed by direct inspection: the source file received is a BLANK
-CHECKLIST TEMPLATE, not completed records. Every one of the 80
-Officer-1..4 cells contains the literal instructional string "Yes/No/NA"
-(telling whoever fills the sheet what to type), not an actual answer, and
-the "Remarks / Evidence" column holds a fixed descriptor of what evidence
-each task expects (e.g. "Monthly", "Quality & completeness"), not a real
-per-period remark. There are no dates, districts, UCs, activity types, or
-completed status values anywhere in the file -- confirmed by checking every
-cell's value, fill color, and comments (none carry hidden data).
+Confirmed by direct inspection: the source file received was originally a
+BLANK CHECKLIST TEMPLATE with 4 generic "Officer 1".."Officer 4" columns,
+not completed records -- every officer cell contained the literal
+instructional string "Yes/No/NA" (telling whoever fills the sheet what to
+type), not an actual answer, and the "Remarks / Evidence" column holds a
+fixed descriptor of what evidence each task expects (e.g. "Monthly",
+"Quality & completeness"), not a real per-period remark. There are no
+dates, districts, UCs, activity types, or completed status values anywhere
+in the file -- confirmed by checking every cell's value, fill color, and
+comments (none carry hidden data). The user later provided the 6 real
+officer names to use in place of the generic "Officer 1".."Officer 4"
+labels; the source workbook's header row was updated in place to those 6
+names (2 new officer columns added, same "Yes/No/NA" placeholder cells as
+every other column) -- see CLAUDE.md for the exact names. All 120
+(20 task x 6 officer) cells were still placeholder text at that point.
 
 The user confirmed this genuinely is the intended source file and chose to
 treat the Admin Activities tab as a LIVE, FILLABLE CHECKLIST inside the
@@ -20,9 +26,10 @@ dashboard (officers'/reviewers' Yes/No/N-A selections are entered and saved
 in the browser, per the same localStorage-backed editable-note pattern used
 elsewhere on this dashboard) rather than a chart-driven analytics tab, since
 there is no completed data to chart. This module only reads the checklist's
-real STRUCTURE from the workbook (task names, the 4 officer column labels,
-and each task's expected-evidence descriptor) -- never the placeholder
-"Yes/No/NA" text as if it were a real answer.
+real STRUCTURE from the workbook (task names, the officer column labels --
+whatever names and however many are in the header row -- and each task's
+expected-evidence descriptor) -- never the placeholder "Yes/No/NA" text as
+if it were a real answer.
 
 Forward-compatible: if a future version of this file DOES contain real
 per-officer answers (a literal "Yes", "No", or "N/A", not the placeholder

@@ -44,7 +44,10 @@ def test_find_admin_activities_files_locates_it_in_raw_dir():
 
 
 def test_officer_columns_match_source(loaded):
-    assert loaded["officer_labels"] == ["Officer 1", "Officer 2", "Officer 3", "Officer 4"]
+    assert loaded["officer_labels"] == [
+        "Dr Imtiaz Ali", "Dr Imran Khan", "Dr Haroon Ur Rashid",
+        "Dr Kazi Taimoor", "Dr Sohrab Ali", "Dr Asad Baig",
+    ]
 
 
 def test_task_count_matches_source(loaded):
@@ -80,7 +83,7 @@ def test_is_blank_template_flag_true_for_this_source(summary):
 
 def test_summary_counts_match_source(summary):
     assert summary["task_count"] == 20
-    assert summary["officer_count"] == 4
+    assert summary["officer_count"] == 6
 
 
 @pytest.mark.parametrize("raw,expected", [
