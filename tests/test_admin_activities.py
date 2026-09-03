@@ -1,10 +1,12 @@
-"""Admin Activities tests, pinned to real values confirmed by direct
-inspection of Admin_Activities_Checklist.xlsx -- a blank per-officer
-administrative compliance checklist TEMPLATE (every officer cell in the
-source is the literal placeholder text "Yes/No/NA", not a real answer), not
-a case-level or activity-log dataset. See admin_activities.py's module
-docstring for the full audit finding and the user's explicit "live,
-fillable checklist" decision.
+"""Divisional Officer & Admin Compliance tests, pinned to real values
+confirmed by direct inspection of Admin_Activities_Checklist.xlsx -- a
+blank per-officer administrative compliance checklist TEMPLATE (every
+officer cell in the source is the literal placeholder text "Yes/No/NA",
+not a real answer), not a case-level or activity-log dataset, split into
+two sections by a color-coding legend the user provided in a reference
+workbook. See admin_activities.py's module docstring for the full audit
+finding, the user's explicit "live, fillable checklist" decision, and how
+the section split was decoded.
 """
 from pathlib import Path
 
@@ -51,7 +53,7 @@ def test_officer_columns_match_source(loaded):
 
 
 def test_task_count_matches_source(loaded):
-    assert len(loaded["tasks"]) == 20
+    assert len(loaded["tasks"]) == 19
 
 
 def test_first_and_last_task_names_match_source(loaded):
@@ -59,11 +61,47 @@ def test_first_and_last_task_names_match_source(loaded):
     assert loaded["tasks"][-1]["task"] == "Other Assigned Tasks"
 
 
+def test_deleted_task_is_not_present(loaded):
+    """'Monthly Report Compliance' was flagged Delete (no-fill) by the
+    color-coding legend the user provided and removed from the source
+    workbook entirely -- must not surface anywhere in the loaded checklist."""
+    task_names = {t["task"] for t in loaded["tasks"]}
+    assert "Monthly Report Compliance" not in task_names
+
+
+def test_renamed_travel_tasks_match_new_source(loaded):
+    task_names = {t["task"] for t in loaded["tasks"]}
+    assert "Travel Claims Submission" in task_names
+    assert "Travel Claims Processed" in task_names
+    assert "Duty Travel Requests" not in task_names
+    assert "Travel Claims / Approval" not in task_names
+
+
 def test_expected_evidence_descriptors_match_source(loaded):
     by_task = {t["task"]: t["expected_evidence"] for t in loaded["tasks"]}
     assert by_task["Logbook Submission"] == "Monthly"
-    assert by_task["Monthly Report Compliance"] == "Quality & completeness"
+    assert by_task["Travel Claims Submission"] == "Timely submission"
+    assert by_task["Travel Claims Processed"] == "Complete documentation"
     assert by_task["Programme Section Support"] == "EPI/MNCH/Nutrition/Emergency"
+
+
+def test_section_categorization_matches_color_coding_legend(loaded):
+    """Decoded from the color-coding legend in the reference workbook the
+    user shared (Yellow=Divisional Officer, green=Admin Section,
+    magenta=Both), applied to each task row's own fill color."""
+    by_task = {t["task"]: t["section"] for t in loaded["tasks"]}
+    divisional = {"Logbook Submission", "Monthly Report Submission", "DSO Mobility Claims",
+                  "Special Activity Reports", "Travel Claims Submission", "DDMs"}
+    admin = {"Travel Claims Processed", "Training / Activity Claims", "Financial Documentation",
+             "Payment Documentation", "Activity Arrangement", "Training/Workshop Coordination",
+             "Stationery Management", "Courier / TCS Management", "Office Bills Processing",
+             "Document Filing / Record Management", "Procurement Requests", "Programme Section Support"}
+    for task in divisional:
+        assert by_task[task] == "Divisional Officer", task
+    for task in admin:
+        assert by_task[task] == "Admin Section", task
+    assert by_task["Other Assigned Tasks"] == "Both"
+    assert set(by_task) == divisional | admin | {"Other Assigned Tasks"}
 
 
 def test_placeholder_text_is_never_treated_as_a_real_answer(loaded):
@@ -82,7 +120,7 @@ def test_is_blank_template_flag_true_for_this_source(summary):
 
 
 def test_summary_counts_match_source(summary):
-    assert summary["task_count"] == 20
+    assert summary["task_count"] == 19
     assert summary["officer_count"] == 6
 
 

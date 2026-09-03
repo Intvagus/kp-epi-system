@@ -507,7 +507,9 @@
   `renderSupervisorySection()`/`renderAdminActivities()` was first factored
   out into a shared function (`mslKpiRow`, `diphtheriaKpiRow`,
   `pertussisKpiRow`, `nntKpiRow`, `rcaKpiRow`, `supervisoryKpiRow`,
-  `adminActivitiesKpiRow`; `whoKpiRow` already existed), and BOTH the
+  `adminActivitiesKpiRow` -- later replaced by `adminSectionKpiRow` when
+  Admin Activities was split into two sections, see below; `whoKpiRow`
+  already existed), and BOTH the
   original tab and the new Overview card call the same function -- verified
   by comparing the Diphtheria KPI values rendered on the Service Delivery
   tab against the Overview tab byte-for-byte (167/35/91.6%/80.8%/1, exact
@@ -524,6 +526,52 @@
   all 6 tabs) and a PPT export check of the Overview tab (13 slides, none
   empty). 169/171 tests passing (the same 2 pre-existing sandbox-only
   Playwright bulletin-PDF failures as every prior round, unrelated).
+- **Admin Activities split into Divisional Officer & Admin Compliance**
+  (done): the user shared a second reference workbook
+  (`Admin_Level_1.xlsx`) with a color-coding legend embedded in it -- a
+  fill-color swatch in column J paired with a text label in column K on a
+  few example rows (row 2: yellow swatch + "Divisional Officer"; row 4:
+  green/theme-accent3 swatch + "Admin Section"; row 6: magenta swatch +
+  "For both"; row 8: no-fill swatch + "Delete") -- confirmed by reading
+  each cell's actual fill type/color/theme index directly, not guessed at.
+  Applying that legend to each of the 20 task rows' own column-A fill color
+  gave every task's section; exactly one task ("Monthly Report Compliance")
+  was no-fill ("Delete") and was removed from the workbook entirely. The
+  same reference file also renamed two travel-related tasks ("Duty Travel
+  Requests" / "Travel Claims / Approval" -> "Travel Claims Submission" /
+  "Travel Claims Processed"), adopted here. Result: 19 tasks -- 6
+  "Divisional Officer", 12 "Admin Section", 1 "Both" ("Other Assigned
+  Tasks"). `data/raw/Admin_Activities_Checklist.xlsx` was rebuilt with a
+  new "Section" column holding these values (read dynamically by
+  `admin_activities.py`, which also had to explicitly exclude this new
+  column from its officer-column auto-detection) -- the 6 real officer
+  names from the prior round were kept as-is, per the user's explicit
+  reminder not to lose them.
+  Tab renamed "Admin Activities" -> "Divisional Officer & Admin Compliance"
+  (nav button, tab title, and every on-page reference). `renderAdminActivities()`
+  restructured into two independent sub-sections, each with its own KPI
+  row, status-distribution doughnut, by-officer table, and checklist table:
+  "Divisional Officer Compliance" (6 tasks + the shared task = 7 rows) and
+  "Admin Compliance" (12 tasks + the shared task = 13 rows). The shared
+  task ("Other Assigned Tasks") is tracked as two fully independent
+  checklist entries, one per section -- distinct `localStorage` keys via a
+  new `sectionKey` component (`epi-admin-status:<section>:<taskIndex>:<officer>`,
+  replacing the old two-part key) -- since a Divisional Officer's "other
+  assigned tasks" and an Admin Section officer's are different real-world
+  work despite sharing a label; verified live in the browser that marking
+  it "Yes" under one section leaves the other section's copy unmarked. A
+  small "shared task" badge on that row in both tables makes the
+  relationship visible rather than silent. The Overview tab's combined card
+  was updated to match (two mini KPI rows, "Divisional Officer Compliance"
+  and "Admin Compliance", same pattern as the Monitoring & Supervision
+  card). 23 tests in `test_admin_activities.py` (3 new: deleted-task
+  absence, renamed-task presence, and full section-categorization
+  matching the decoded legend for every one of the 19 tasks); 172/174
+  tests passing overall (same 2 pre-existing sandbox-only failures).
+  Verified with a Playwright sweep (zero console errors, correct nav
+  label, correct row counts in both sections, live independent tracking of
+  the shared task) and PPT export checks of both the Overview tab (13
+  slides) and the new tab (10 slides), none empty.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
@@ -703,7 +751,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
 | `data/raw/WHO_EPI_May_2024_Highlights_Dashboard.xlsx` | 3 sheets (`Sheet1`, `Evidence & Findings`, `WHO Highlights Dashboard`) | Single month, May 2024, Malakand duty station (6 assigned districts) | See Part 1d above (who_activities.py). 3 sheets are 3 views of one report, not independent data. |
-| `data/raw/Admin_Activities_Checklist.xlsx` | 1 sheet (`Admin Activities`), 20 task rows x 4 officer columns | No period -- a blank compliance checklist template, not a dated record | See Part 1e above (admin_activities.py). User-confirmed genuine source; built as a live, browser-fillable checklist, not a chart. |
+| `data/raw/Admin_Activities_Checklist.xlsx` | 1 sheet (`Admin Activities`), now 19 task rows x 6 named officer columns + a Section column | No period -- a blank compliance checklist template, not a dated record | See Part 1e above (admin_activities.py) and the later "Divisional Officer & Admin Compliance" round for the 6-officer rename and 2-section split. User-confirmed genuine source; built as a live, browser-fillable checklist, not a chart. |
 
 AFP (within VPD) has **not** been provided yet — see "Confirmed VPD decisions" below.
 

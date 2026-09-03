@@ -1,8 +1,27 @@
-"""Read the "Admin Activities" workbook -- a per-officer administrative
-compliance checklist (20 fixed administrative responsibilities x 6 named
-officer columns, e.g. logbook/report submission, claims processing,
-procurement, record management), not a case-level or activity-log dataset
-like every other domain in this project.
+"""Read the "Divisional Officer & Admin Compliance" workbook (sheet name
+"Admin Activities") -- a per-officer administrative compliance checklist
+(19 fixed administrative responsibilities x 6 named officer columns, e.g.
+logbook/report submission, claims processing, procurement, record
+management), not a case-level or activity-log dataset like every other
+domain in this project.
+
+Each task belongs to one of two compliance sections -- "Divisional
+Officer" or "Admin Section" -- or both (SECTION_BOTH); one task
+("Other Assigned Tasks") belongs to both, tracked as two independent
+checklist entries on the dashboard (see template.html). The user shared a
+second reference workbook with a color-coding legend embedded in it (a
+fill-color swatch in column J paired with a text label in column K, on a
+few example rows) to specify this split: Yellow -> "Divisional Officer",
+green (theme accent3) -> "Admin Section", magenta -> "Both", no fill ->
+"Delete". Applying that legend to each task row's own column-A fill color
+(never guessed at) gave the section for every task, and identified exactly
+one task ("Monthly Report Compliance") as no-fill/"Delete" -- removed from
+this workbook entirely, not just hidden. That same reference file also
+renamed two travel-related tasks ("Duty Travel Requests" / "Travel Claims
+/ Approval" -> "Travel Claims Submission" / "Travel Claims Processed"),
+adopted here. The real workbook (data/raw/Admin_Activities_Checklist.xlsx)
+was rebuilt to match: 19 tasks, a "Section" column added, the 6 real
+officer names already in place kept as-is.
 
 Confirmed by direct inspection: the source file received was originally a
 BLANK CHECKLIST TEMPLATE with 4 generic "Officer 1".."Officer 4" columns,
@@ -45,6 +64,17 @@ import openpyxl
 ADMIN_ACTIVITIES_SHEET = "Admin Activities"
 TASK_COLUMN_HEADER = "Task / Administrative Responsibility"
 EVIDENCE_COLUMN_HEADER = "Remarks / Evidence"
+SECTION_COLUMN_HEADER = "Section"
+
+# The two compliance sections this checklist is split into, plus the value
+# a task carries when it belongs to both -- these are the exact strings the
+# source workbook's own Section column uses (decoded from the color-coding
+# legend embedded in the reference file the user shared: Yellow=Divisional
+# Officer, green=Admin Section, magenta=Both, no-fill=Delete -- the "Delete"
+# rows are simply not present in the workbook at all, never filtered here).
+SECTION_DIVISIONAL_OFFICER = "Divisional Officer"
+SECTION_ADMIN = "Admin Section"
+SECTION_BOTH = "Both"
 
 # The placeholder text a blank template cell contains, normalized (spaces/
 # slashes stripped, lowercased) so "Yes/No/NA", "Yes / No / NA", etc. all
@@ -105,9 +135,10 @@ def load_admin_activities(path: Path) -> dict:
     header = [str(h).strip() if h is not None else None for h in header]
     task_col = header.index(TASK_COLUMN_HEADER) + 1 if TASK_COLUMN_HEADER in header else 1
     evidence_col = header.index(EVIDENCE_COLUMN_HEADER) + 1 if EVIDENCE_COLUMN_HEADER in header else None
+    section_col = header.index(SECTION_COLUMN_HEADER) + 1 if SECTION_COLUMN_HEADER in header else None
     officer_cols = [
         (c, header[c - 1]) for c in range(1, ws.max_column + 1)
-        if c not in (task_col, evidence_col) and header[c - 1]
+        if c not in (task_col, evidence_col, section_col) and header[c - 1]
     ]
 
     tasks = []
@@ -132,6 +163,8 @@ def load_admin_activities(path: Path) -> dict:
             "task": str(task_name).strip(),
             "expected_evidence": (str(ws.cell(row=r, column=evidence_col).value).strip()
                                    if evidence_col and ws.cell(row=r, column=evidence_col).value else None),
+            "section": (str(ws.cell(row=r, column=section_col).value).strip()
+                        if section_col and ws.cell(row=r, column=section_col).value else None),
             "officers": officers,
         })
         r += 1
