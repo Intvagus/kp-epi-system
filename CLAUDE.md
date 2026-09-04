@@ -654,6 +654,45 @@
   observed (not fixed, out of scope): the nav bar's 6 tab labels start
   clipping below roughly 900px viewport width -- this dashboard has always
   been laid out for desktop/tablet review, never built mobile-first.
+- **Modular single-file-upload live verification pass, real bug found and
+  fixed** (done): the user issued a formal pre-deployment requirements
+  document restating this project's "Independent Inputs ≠ Different
+  Analysis" principle and asking for it to be verified end-to-end, not just
+  assumed correct because it was a first-class design goal throughout.
+  Every prior Playwright audit pass this project has run (including the
+  "full dashboard audit" one round earlier) exercised `output/dashboard.html`
+  built from the complete local `data/raw/` directory, i.e. every domain
+  simultaneously present -- so a genuinely partial upload combination had
+  never actually been driven through the real Flask upload form before.
+  Wrote a live-verification script that uploads each of 6 single-file
+  scenarios (Coverage-monthly-only, VPD-only, RCA-only, Supervisory-only,
+  WHO-only, Admin-only) through the actual `/generate` route on a running
+  dev server, opens the real generated `dashboard.html`, checks console/page
+  errors, visits the relevant tab, and exercises both PDF (`window.print`)
+  and PPT export. **Found a real, previously-unexercised bug**: uploading
+  Coverage alone (or Supervisory alone) crashed with
+  `PAGEERROR: rcaResult.build is not a function` on opening the Service
+  Delivery tab. Root cause: `renderCoverage()` calls `.build()`
+  unconditionally on both `renderRcaSection()`'s and
+  `renderSupervisorySection()`'s return values regardless of whether the
+  Monitoring block ends up in the DOM (so both must always honor the same
+  `{ html, build }` contract) -- `renderSupervisorySection`'s
+  `awaiting_data` branch already returned that shape correctly, but
+  `renderRcaSection`'s `awaiting_data` branch returned a bare HTML string
+  instead, so `.build` was `undefined` whenever RCA had no data (which is
+  most single-domain uploads that aren't RCA itself). Fixed by making
+  `renderRcaSection`'s `awaiting_data` branch return
+  `{ html: '...', build: function () {} }`, mirroring
+  `renderSupervisorySection` exactly. Re-ran all 6 scenarios after the fix:
+  zero console/page errors in every one, PDF export triggers cleanly on
+  every scenario, and PPT export produced non-empty decks for all 6
+  (8-24 slides depending on how much a given single domain actually
+  contains). Full pytest suite still 178/180 passing (same 2 pre-existing
+  sandbox-only Playwright-bulletin-PDF failures, unrelated). This is an
+  explicit, honest correction of the prior round's "zero console errors"
+  claim -- that finding was accurate for the fully-populated-dataset
+  scenario it tested, but did not generalize to true modular/partial
+  uploads, which this round was specifically written to exercise.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

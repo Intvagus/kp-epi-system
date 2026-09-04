@@ -2376,8 +2376,9 @@
 
   function renderRcaSection(rca) {
     if (rca.status === "awaiting_data") {
-      return '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
-        '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(rca.message) + '</div></div>';
+      return { html:
+        '<div class="card"><h2><span class="disease-tag" style="background:var(--rca);"></span>RCA &mdash; Rapid Convenience Assessment</h2>' +
+        '<div class="placeholder-card"><div class="icon">⏳</div>' + escHtml(rca.message) + '</div></div>', build: function () {} };
     }
     var ov = rca.overview, zd = rca.zero_dose;
     var kpis = rcaKpiRow(rca);
