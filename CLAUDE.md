@@ -611,6 +611,49 @@
   Overview tab (13 slides) and the tab itself (9 slides), none empty.
   172/174 tests passing (same 2 pre-existing sandbox-only failures;
   Python-side pipeline untouched this round, so no test changes needed).
+- **Overview tab: Monthly/Cumulative period pills added, full audit pass**
+  (done): the user asked for the same Monthly/Cumulative pill toggle
+  already on the Service Delivery tab to also appear on Overview, so a
+  user never has to leave Overview to change period. Implemented by
+  reusing the exact same `state.coveragePeriodKind` state variable and
+  `syncPeriodIdToCoverageKind()` sync function the Service Delivery tab
+  already uses (per that function's own docstring: "One selector for the
+  whole dashboard... rather than exposing a second, separate period
+  control") -- Overview's pills are a second UI surface for the one shared
+  state, not a second independent control. Clicking a pill on either tab
+  updates both (`renderOverview()`/`renderCoverage()` each proactively
+  re-render the other on change, mirroring the pattern already used for
+  the Service Delivery pill).
+  **Real bug found and fixed while building this**: the pill's `active`
+  class toggled correctly on click, but the KPI numbers underneath it did
+  not change -- `renderOverview()` read `provinceRow()`/`districtRows()`
+  (both filtered by `state.periodId`) before anything had re-synced
+  `state.periodId` from the newly-clicked `state.coveragePeriodKind`; the
+  sync only happened as a side effect of the proactive `renderTab("coverage")`
+  call *after* Overview had already rendered with the stale period. Fixed
+  by calling `syncPeriodIdToCoverageKind(state.coveragePeriodKind)` at the
+  very top of `renderOverview()`, before `provinceRow()` is read -- verified
+  live that MR1 (73.0% -> 84.0%) and FIC (65.0% -> 80.0%) now genuinely
+  change on pill click, not just the pill's own visual state.
+  Followed by a full audit pass per the user's request: full pytest suite
+  (172/174, same 2 pre-existing sandbox-only failures), a Playwright sweep
+  exercising every interactive control across all 6 tabs (period pills,
+  Explorer search/sort/drill-down, RCA age-group filter, Analyze Monitor
+  Remarks button, WHO district/theme filters and search/reset, both
+  Divisional Officer and Admin Compliance dropdowns and the reset button,
+  editable insight boxes, Data Quality search) with zero console errors
+  throughout, a grep sweep confirming no dead references remain to any
+  previously-removed feature (Composite Compliance Score, Facility
+  Ranking, Supervisory Map, WHO Timeline chart, the old officer-based
+  Admin Compliance functions), a PPT export check of all 6 tabs (0 empty
+  slides across 13/20/24/10/9/4 slides respectively), and a print/PDF CSS
+  check confirming the new Overview pills follow the same
+  only-show-the-active-pill-as-plain-text print convention as the
+  Service Delivery pills, with no extra code needed since it's the same
+  `.period-pill` CSS class. One pre-existing, non-regression cosmetic note
+  observed (not fixed, out of scope): the nav bar's 6 tab labels start
+  clipping below roughly 900px viewport width -- this dashboard has always
+  been laid out for desktop/tablet review, never built mobile-first.
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).

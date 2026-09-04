@@ -402,6 +402,12 @@
   // ================= OVERVIEW =================
   function renderOverview() {
     var el = document.getElementById("tab-overview");
+    // Keep state.periodId in sync with the Monthly/Cumulative pill BEFORE
+    // reading any period-filtered row -- provinceRow()/districtRows() below
+    // filter by state.periodId, so calling this after they run (or not at
+    // all) would silently show stale-period data despite the clicked pill
+    // showing as active.
+    syncPeriodIdToCoverageKind(state.coveragePeriodKind);
     var prov = provinceRow();
     if (!prov) {
       el.innerHTML = '<div class="card"><div class="placeholder-card"><div class="icon">📊</div>' +
@@ -412,6 +418,22 @@
     }
 
     var currentPeriod = DATA.periods.filter(function (p) { return p.period_id === state.periodId; })[0];
+
+    var summary = DATA.coverage_summary;
+    var periodKinds = [];
+    if (summary.status === "ok") {
+      if (summary.periods.monthly && summary.periods.monthly.status === "ok") {
+        periodKinds.push({ key: "monthly", label: "Monthly — " + summary.periods.monthly.executive.current_period_label });
+      }
+      if (summary.periods.cumulative && summary.periods.cumulative.status === "ok") {
+        periodKinds.push({ key: "cumulative", label: "Cumulative — " + summary.periods.cumulative.executive.current_period_label });
+      }
+    }
+    var periodPillsHtml = periodKinds.length > 1
+      ? '<div class="controls-row" style="margin-bottom:14px;">' + periodKinds.map(function (k) {
+          return '<button class="period-pill' + (k.key === state.coveragePeriodKind ? " active" : "") + '" data-kind="' + k.key + '">' + k.label + '</button>';
+        }).join("") + '</div>'
+      : (currentPeriod ? '<p class="sub" style="margin:-4px 0 10px 0;">Showing: <strong>' + escHtml(currentPeriod.label) + '</strong></p>' : '');
 
     var kpis = [
       ["BCG", prov.bcg_pct_reported, coverageRag(prov.bcg_pct_reported)],
@@ -429,8 +451,7 @@
     var dRows = districtRows().slice().sort(function (a, b) { return (b.fic_pct_reported || 0) - (a.fic_pct_reported || 0); });
 
     el.innerHTML =
-      (currentPeriod ? '<p class="sub" style="margin:-4px 0 10px 0;">Showing: <strong>' + escHtml(currentPeriod.label) + '</strong> ' +
-        '<span style="opacity:.75;">(change on the Service Delivery tab’s Monthly/Cumulative toggle)</span></p>' : '') +
+      periodPillsHtml +
       '<div class="grid kpi-row">' + kpiHtml + '</div>' +
       '<div class="grid two-col" style="margin-top:14px;">' +
         '<div class="card"><h2>Antigen Cascade (Province-wide)</h2><div class="chart-wrap"><canvas id="chart-cascade"></canvas></div></div>' +
@@ -438,6 +459,14 @@
       '</div>' +
       '<div class="card"><h2>Districts Ranked by FIC Coverage</h2><div class="chart-wrap tall"><canvas id="chart-fic-rank"></canvas></div></div>' +
       '<h3 class="tab-summaries-heading">Executive Overview — All Sections</h3><div id="overview-tab-summaries" class="grid"></div>';
+
+    el.querySelectorAll(".period-pill").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.coveragePeriodKind = btn.dataset.kind;
+        renderOverview();
+        renderTab("coverage");
+      });
+    });
 
     destroyChart("cascade"); destroyChart("category"); destroyChart("ficRank");
 
