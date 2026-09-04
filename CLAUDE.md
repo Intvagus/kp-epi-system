@@ -740,8 +740,17 @@
   the exact same pipeline/dashboard/bulletin modules, with per-job temp
   directories for isolation between concurrent uploads. Containerized
   (`Dockerfile`) for deployment to Render.com (`render.yaml`) — see
-  "Web app / hosting" below. No login (explicit user choice, no password) --
-  job IDs are random UUIDs, the only isolation in place.
+  "Web app / hosting" below. Job IDs are random UUIDs, an isolation
+  mechanism independent of login. **Optional password protection added**:
+  if `EPI_AUTH_USERNAME` and `EPI_AUTH_PASSWORD` are both set in the
+  environment, every route except `/healthz` requires HTTP Basic Auth
+  (`webapp/app.py::_require_auth`, a `before_request` hook using
+  `secrets.compare_digest` for a timing-safe comparison) -- deliberately
+  opt-in via env var, not hardcoded, so local dev is unaffected unless
+  explicitly configured. `render.yaml` declares both keys with `sync: false`
+  so Render prompts for the values in its dashboard rather than storing them
+  in git. `/healthz` stays open unconditionally since Render's health check
+  has no way to supply credentials.
 
 ## Web app / hosting
 

@@ -183,3 +183,36 @@ def test_excel_data_export_is_built(client):
     resp = _upload(client, DEC_FILE)
     assert resp.status_code == 200
     assert b"EPI_Data_Export.xlsx" in resp.data
+
+
+def test_no_auth_configured_means_no_login_required(client):
+    """Default/local-dev behaviour: EPI_AUTH_USERNAME/PASSWORD unset -> every
+    route works with no credentials, exactly as before this feature existed."""
+    import webapp.app as webapp_module
+    assert webapp_module.AUTH_ENABLED is False
+    resp = client.get("/")
+    assert resp.status_code == 200
+
+
+def test_basic_auth_when_configured_blocks_and_allows_correctly(client, monkeypatch):
+    """Opt-in HTTP Basic Auth: wrong/missing credentials are rejected, correct
+    ones pass, and /healthz stays open either way (Render's health check has
+    no way to supply credentials)."""
+    import webapp.app as webapp_module
+    monkeypatch.setattr(webapp_module, "AUTH_USERNAME", "epiuser")
+    monkeypatch.setattr(webapp_module, "AUTH_PASSWORD", "epipass")
+    monkeypatch.setattr(webapp_module, "AUTH_ENABLED", True)
+
+    resp = client.get("/")
+    assert resp.status_code == 401
+
+    resp = client.get("/", headers={"Authorization": "Basic d3Jvbmc6Y3JlZHM="})  # wrong:creds
+    assert resp.status_code == 401
+
+    import base64
+    good = base64.b64encode(b"epiuser:epipass").decode()
+    resp = client.get("/", headers={"Authorization": f"Basic {good}"})
+    assert resp.status_code == 200
+
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
