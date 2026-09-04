@@ -564,11 +564,10 @@
 
     var a = DATA.admin_activities;
     if (a.status === "ok") {
-      var adminHtml = '<div class="card"><h2><span class="disease-tag" style="background:var(--admin);"></span>Divisional Officer &amp; Admin Compliance — Executive Overview</h2>';
-      ADMIN_SECTIONS.forEach(function (sectionDef, idx) {
-        adminHtml += '<h3' + (idx > 0 ? ' style="margin-top:14px;"' : '') + '>' + escHtml(sectionDef.label) + '</h3><div class="grid kpi-row">' + adminSectionKpiRow(a, sectionDef) + '</div>';
-      });
-      adminHtml += '</div>';
+      var adminHtml = '<div class="card"><h2><span class="disease-tag" style="background:var(--admin);"></span>Divisional Officer &amp; Admin Compliance — Executive Overview</h2>' +
+        '<h3>Divisional Officer Compliance</h3><div class="grid kpi-row">' + adminSectionKpiRow(a, ADMIN_SECTION_DIVISIONAL) + '</div>' +
+        '<h3 style="margin-top:14px;">Admin Compliance</h3><div class="grid kpi-row">' + adminComplianceKpiRow(a) + '</div>' +
+      '</div>';
       cards.push(adminHtml);
     }
 
@@ -3050,7 +3049,6 @@
     match: function (t) { return t.section === "Divisional Officer" || t.section === "Both"; } };
   var ADMIN_SECTION_ADMIN = { key: "admin", label: "Admin Compliance",
     match: function (t) { return t.section === "Admin Section" || t.section === "Both"; } };
-  var ADMIN_SECTIONS = [ADMIN_SECTION_DIVISIONAL, ADMIN_SECTION_ADMIN];
 
   function adminStatusKey(sectionKey, taskIndex, officerLabel) {
     return "epi-admin-status:" + sectionKey + ":" + taskIndex + ":" + officerLabel;
@@ -3136,6 +3134,86 @@
       '<th>Expected Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
+  // ---- Admin Compliance: tracked per TASK, not per officer -----------
+  // Per the user's explicit correction: this checklist reflects one admin
+  // person's own work, so a per-officer breakdown doesn't apply here (only
+  // Divisional Officer Compliance keeps the officer columns). Each task
+  // instead gets two independent fields: a 3-state completion status
+  // (Completed / In Progress / Not Started -- clearer standard
+  // project-tracking language than the source's old Yes/No/N-A idiom) and
+  // a separate Yes/No "Verified by Supervisor" sign-off flag, since a task
+  // being done and a task being reviewed are two different facts. Neither
+  // field has a source-provided starting value (the source has no such
+  // columns), so both start unmarked -- never fabricated.
+  var ADMIN_COMPLETION_OPTIONS = ["Completed", "In Progress", "Not Started"];
+  var ADMIN_VERIFIED_OPTIONS = ["Yes", "No"];
+
+  function adminTaskCompletionKey(taskIndex) { return "epi-admin-task-completion:" + taskIndex; }
+  function adminTaskVerifiedKey(taskIndex) { return "epi-admin-task-verified:" + taskIndex; }
+
+  function adminTaskCompletionValue(taskIndex) {
+    var stored = null;
+    try { stored = localStorage.getItem(adminTaskCompletionKey(taskIndex)); } catch (e) {}
+    return (stored && ADMIN_COMPLETION_OPTIONS.indexOf(stored) !== -1) ? stored : null;
+  }
+  function adminTaskVerifiedValue(taskIndex) {
+    var stored = null;
+    try { stored = localStorage.getItem(adminTaskVerifiedKey(taskIndex)); } catch (e) {}
+    return (stored && ADMIN_VERIFIED_OPTIONS.indexOf(stored) !== -1) ? stored : null;
+  }
+
+  function adminComplianceSummary(a) {
+    var entries = adminSectionEntries(a, ADMIN_SECTION_ADMIN);
+    var completed = 0, inProgress = 0, notStarted = 0, completionMarked = 0;
+    var verifiedYes = 0, verifiedNo = 0, verifiedMarked = 0;
+    entries.forEach(function (entry) {
+      var c = adminTaskCompletionValue(entry.index);
+      if (c === "Completed") { completed++; completionMarked++; }
+      else if (c === "In Progress") { inProgress++; completionMarked++; }
+      else if (c === "Not Started") { notStarted++; completionMarked++; }
+      var v = adminTaskVerifiedValue(entry.index);
+      if (v === "Yes") { verifiedYes++; verifiedMarked++; }
+      else if (v === "No") { verifiedNo++; verifiedMarked++; }
+    });
+    return {
+      entries: entries, taskCount: entries.length,
+      completed: completed, inProgress: inProgress, notStarted: notStarted,
+      completionMarked: completionMarked, completionNotMarked: entries.length - completionMarked,
+      verifiedYes: verifiedYes, verifiedNo: verifiedNo, verifiedMarked: verifiedMarked,
+      verifiedNotMarked: entries.length - verifiedMarked,
+    };
+  }
+
+  function adminComplianceKpiRow(a, s) {
+    s = s || adminComplianceSummary(a);
+    return [
+      kpiCard("Tasks Tracked", fmtNum(s.taskCount), "Admin Compliance"),
+      kpiCard("Completed", fmtNum(s.completed), s.taskCount ? countPct(s.completed, s.taskCount) + " of tasks" : ""),
+      kpiCard("In Progress", fmtNum(s.inProgress), ""),
+      kpiCard("Not Started", fmtNum(s.notStarted), ""),
+      kpiCard("Verified by Supervisor", fmtNum(s.verifiedYes), "of " + fmtNum(s.verifiedMarked) + " reviewed (" + fmtNum(s.taskCount - s.verifiedMarked) + " not yet reviewed)"),
+    ].join("");
+  }
+
+  function adminComplianceTableHtml(a, s) {
+    var rows = s.entries.map(function (entry) {
+      var task = entry.task, i = entry.index;
+      var c = adminTaskCompletionValue(i);
+      var v = adminTaskVerifiedValue(i);
+      var completionSelect = '<select class="filter-select admin-completion-select" data-task-index="' + i + '">' +
+        '<option value=""' + (c === null ? " selected" : "") + '>&mdash; Not marked &mdash;</option>' +
+        ADMIN_COMPLETION_OPTIONS.map(function (opt) { return '<option value="' + opt + '"' + (c === opt ? " selected" : "") + '>' + opt + '</option>'; }).join("") +
+        '</select>';
+      var verifiedSelect = '<select class="filter-select admin-verified-select" data-task-index="' + i + '">' +
+        '<option value=""' + (v === null ? " selected" : "") + '>&mdash; Not marked &mdash;</option>' +
+        ADMIN_VERIFIED_OPTIONS.map(function (opt) { return '<option value="' + opt + '"' + (v === opt ? " selected" : "") + '>' + opt + '</option>'; }).join("") +
+        '</select>';
+      return '<tr><td>' + escHtml(task.task) + (task.section === "Both" ? ' <span class="badge neutral">shared task</span>' : '') + '</td>' +
+        '<td>' + completionSelect + '</td><td>' + verifiedSelect + '</td><td class="sub">' + escHtml(task.expected_evidence || "—") + '</td></tr>';
+    }).join("");
+    return '<div class="table-scroll"><table><thead><tr><th>Task / Administrative Responsibility</th><th>Completion Status</th><th>Verified by Supervisor</th><th>Expected Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
   function renderAdminActivities() {
     var el = document.getElementById("tab-admin");
     var a = DATA.admin_activities;
@@ -3145,35 +3223,42 @@
       return;
     }
 
-    var sectionSummaries = ADMIN_SECTIONS.map(function (sectionDef) { return adminChecklistSummaryForSection(a, sectionDef); });
+    var divSummary = adminChecklistSummaryForSection(a, ADMIN_SECTION_DIVISIONAL);
+    var adminSummary = adminComplianceSummary(a);
     var bothCount = a.tasks.filter(function (t) { return t.section === "Both"; }).length;
 
     var insightId = "admin-compliance-summary";
-    var autoInsight = ADMIN_SECTIONS.map(function (sectionDef, idx) {
-      var s = sectionSummaries[idx];
-      return sectionDef.label + ": " + fmtNum(s.marked) + " of " + fmtNum(s.totalCells) + " entries marked" +
-        (s.compliancePct !== null ? " (" + fmtPct(s.compliancePct) + " compliance among Yes/No entries)" : " (none marked yet)") + ".";
-    }).join(" ") + (bothCount ? " " + nounFor(bothCount, "task") + " " + plural(bothCount, "is", "are") + " tracked in both sections." : "");
+    var autoInsight = "Divisional Officer Compliance: " + fmtNum(divSummary.marked) + " of " + fmtNum(divSummary.totalCells) + " entries marked" +
+      (divSummary.compliancePct !== null ? " (" + fmtPct(divSummary.compliancePct) + " compliance among Yes/No entries)." : " (none marked yet).") +
+      " Admin Compliance: " + fmtNum(adminSummary.completed) + " of " + fmtNum(adminSummary.taskCount) + " tasks completed, " +
+      fmtNum(adminSummary.inProgress) + " in progress, " + fmtNum(adminSummary.notStarted) + " not started" +
+      (adminSummary.completionNotMarked > 0 ? " (" + fmtNum(adminSummary.completionNotMarked) + " not yet marked)" : "") + "." +
+      (bothCount ? " " + nounFor(bothCount, "task") + " " + plural(bothCount, "is", "are") + " tracked in both sections." : "");
 
-    var sectionCardsHtml = ADMIN_SECTIONS.map(function (sectionDef, idx) {
-      var s = sectionSummaries[idx];
-      return '<div class="section-heading"><h2>' + escHtml(sectionDef.label) + '</h2></div>' +
-        '<div class="card"><div class="grid kpi-row">' + adminSectionKpiRow(a, sectionDef, s) + '</div></div>' +
-        '<div class="grid two-col">' +
-          '<div class="card"><h3>Status Distribution</h3><div class="chart-wrap"><canvas id="chart-admin-status-' + sectionDef.key + '"></canvas></div></div>' +
-          '<div class="card"><h3>By Officer</h3>' + adminSectionOfficerTableHtml(a, s) + '</div>' +
-        '</div>' +
-        '<div class="card"><h3>Task Checklist</h3>' +
-          '<p class="section-note">Select Yes / No / N/A for each officer against each administrative responsibility.' +
-          (sectionDef.key === "divisional" ? " " : ' A "shared task" badge marks an item also tracked under Divisional Officer Compliance.') +
-          '</p>' +
-          adminSectionTableHtml(a, sectionDef, s) +
-        '</div>';
-    }).join("");
+    var divisionalHtml =
+      '<div class="section-heading"><h2>Divisional Officer Compliance</h2></div>' +
+      '<div class="card"><div class="grid kpi-row">' + adminSectionKpiRow(a, ADMIN_SECTION_DIVISIONAL, divSummary) + '</div></div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h3>Status Distribution</h3><div class="chart-wrap"><canvas id="chart-admin-status-divisional"></canvas></div></div>' +
+        '<div class="card"><h3>By Officer</h3>' + adminSectionOfficerTableHtml(a, divSummary) + '</div>' +
+      '</div>' +
+      '<div class="card"><h3>Task Checklist</h3>' +
+        '<p class="section-note">Select Yes / No / N/A for each officer against each administrative responsibility.</p>' +
+        adminSectionTableHtml(a, ADMIN_SECTION_DIVISIONAL, divSummary) +
+      '</div>';
+
+    var adminHtml =
+      '<div class="section-heading"><h2>Admin Compliance</h2></div>' +
+      '<div class="card"><div class="grid kpi-row">' + adminComplianceKpiRow(a, adminSummary) + '</div></div>' +
+      '<div class="card"><h3>Completion Status Distribution</h3><div class="chart-wrap"><canvas id="chart-admin-completion"></canvas></div></div>' +
+      '<div class="card"><h3>Task Checklist</h3>' +
+        '<p class="section-note">Tracked per task, not per officer -- select a completion status and supervisor verification for each administrative responsibility. A "shared task" badge marks an item also tracked under Divisional Officer Compliance.</p>' +
+        adminComplianceTableHtml(a, adminSummary) +
+      '</div>';
 
     el.innerHTML =
       '<div class="card"><h2>🗂️ Divisional Officer &amp; Admin Compliance</h2>' +
-        '<p class="section-note">Source: ' + escHtml(a.source_file) + '. Tracks ' + a.officer_count + ' officers (' + escHtml(a.officer_labels.join(", ")) + ') across ' + a.task_count + ' administrative responsibilities, split into two compliance sections below. ' +
+        '<p class="section-note">Source: ' + escHtml(a.source_file) + '. ' + a.task_count + ' administrative responsibilities split into two compliance sections below: Divisional Officer Compliance is tracked per officer (' + escHtml(a.officer_labels.join(", ")) + '); Admin Compliance is tracked per task, with a completion status and supervisor verification. ' +
         (a.is_blank_template
           ? 'The uploaded workbook is a blank checklist template (no completed answers) -- mark each item below as it is verified; your selections are saved in this browser.'
           : 'The uploaded workbook already contains ' + fmtNum(a.prefilled_answers_count) + ' pre-filled answer(s), shown as the starting state below; further changes are saved in this browser.') +
@@ -3181,19 +3266,24 @@
         editableInsight(insightId, autoInsight) +
         '<div class="controls-row" style="margin-top:10px;"><button class="reset-btn" id="admin-reset-btn">Reset checklist (this browser)</button></div>' +
       '</div>' +
-      sectionCardsHtml;
+      divisionalHtml + adminHtml;
 
     wireEditableInsights(el);
 
-    ADMIN_SECTIONS.forEach(function (sectionDef, idx) {
-      var s = sectionSummaries[idx];
-      destroyChart("adminStatus" + sectionDef.key);
-      var doughnut = doughnutData({ "Yes": s.yes, "No": s.no, "N/A": s.na, "Not yet marked": s.notMarked });
-      charts["adminStatus" + sectionDef.key] = new Chart(document.getElementById("chart-admin-status-" + sectionDef.key), {
-        type: "doughnut",
-        data: { labels: doughnut.labels, datasets: [{ data: doughnut.values, backgroundColor: doughnut.colors }] },
-        options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
-      });
+    destroyChart("adminStatusdivisional");
+    var divDoughnut = doughnutData({ "Yes": divSummary.yes, "No": divSummary.no, "N/A": divSummary.na, "Not yet marked": divSummary.notMarked });
+    charts.adminStatusdivisional = new Chart(document.getElementById("chart-admin-status-divisional"), {
+      type: "doughnut",
+      data: { labels: divDoughnut.labels, datasets: [{ data: divDoughnut.values, backgroundColor: divDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+    });
+
+    destroyChart("adminCompletion");
+    var compDoughnut = doughnutData({ "Completed": adminSummary.completed, "In Progress": adminSummary.inProgress, "Not Started": adminSummary.notStarted, "Not yet marked": adminSummary.completionNotMarked });
+    charts.adminCompletion = new Chart(document.getElementById("chart-admin-completion"), {
+      type: "doughnut",
+      data: { labels: compDoughnut.labels, datasets: [{ data: compDoughnut.values, backgroundColor: compDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
     });
 
     el.querySelectorAll(".admin-status-select").forEach(function (sel) {
@@ -3207,13 +3297,37 @@
       });
     });
 
+    el.querySelectorAll(".admin-completion-select").forEach(function (sel) {
+      sel.addEventListener("change", function (e) {
+        var key = adminTaskCompletionKey(parseInt(e.target.dataset.taskIndex, 10));
+        try {
+          if (e.target.value === "") localStorage.removeItem(key);
+          else localStorage.setItem(key, e.target.value);
+        } catch (err) {}
+        renderAdminActivities();
+      });
+    });
+
+    el.querySelectorAll(".admin-verified-select").forEach(function (sel) {
+      sel.addEventListener("change", function (e) {
+        var key = adminTaskVerifiedKey(parseInt(e.target.dataset.taskIndex, 10));
+        try {
+          if (e.target.value === "") localStorage.removeItem(key);
+          else localStorage.setItem(key, e.target.value);
+        } catch (err) {}
+        renderAdminActivities();
+      });
+    });
+
     document.getElementById("admin-reset-btn").addEventListener("click", function () {
       if (!confirm("Clear all checklist selections saved in this browser (both sections)? This cannot be undone.")) return;
       try {
-        ADMIN_SECTIONS.forEach(function (sectionDef) {
-          adminSectionEntries(a, sectionDef).forEach(function (entry) {
-            a.officer_labels.forEach(function (officerLabel) { localStorage.removeItem(adminStatusKey(sectionDef.key, entry.index, officerLabel)); });
-          });
+        adminSectionEntries(a, ADMIN_SECTION_DIVISIONAL).forEach(function (entry) {
+          a.officer_labels.forEach(function (officerLabel) { localStorage.removeItem(adminStatusKey(ADMIN_SECTION_DIVISIONAL.key, entry.index, officerLabel)); });
+        });
+        adminSectionEntries(a, ADMIN_SECTION_ADMIN).forEach(function (entry) {
+          localStorage.removeItem(adminTaskCompletionKey(entry.index));
+          localStorage.removeItem(adminTaskVerifiedKey(entry.index));
         });
       } catch (err) {}
       renderAdminActivities();

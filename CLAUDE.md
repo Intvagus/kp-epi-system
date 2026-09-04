@@ -572,6 +572,45 @@
   label, correct row counts in both sections, live independent tracking of
   the shared task) and PPT export checks of both the Overview tab (13
   slides) and the new tab (10 slides), none empty.
+- **Admin Compliance switched from per-officer to per-task tracking**
+  (done): the user pointed out that the Admin Compliance checklist
+  actually reflects one admin person's own work, not something meaningfully
+  tracked per named officer -- asked to clarify the exact interaction model
+  before rebuilding (`AskUserQuestion`, twice: which fields, and what a
+  requested "Yes/No filter" should mean), confirmed: Divisional Officer
+  Compliance is untouched (still 6 officer columns, Yes/No/N-A); Admin
+  Compliance drops the officer columns entirely and instead tracks each
+  task with two independent fields -- a 3-state completion status
+  (`Completed` / `In Progress` / `Not Started`, chosen as clearer standard
+  project-tracking language than the user's own literal "completed/not
+  completed/partially completed" suggestion, which they invited improving
+  on) and a separate `Verified by Supervisor` Yes/No sign-off, per the
+  user's explicit answer that the second field means supervisor review, not
+  e.g. evidence-attached. Neither field has a source-provided starting
+  value (no such columns exist in the workbook), so both start unmarked --
+  same "honest empty state, not a defect" principle as every other
+  checklist field on this tab.
+  New functions (`adminComplianceSummary`, `adminComplianceKpiRow`,
+  `adminComplianceTableHtml`) replace the officer-based ones for this
+  section only; new localStorage keys (`epi-admin-task-completion:<idx>`,
+  `epi-admin-task-verified:<idx>`) since the per-officer key scheme no
+  longer applies here. The Admin Compliance "By Officer" table and officer
+  KPI card are gone (there's no officer dimension to break down anymore);
+  its KPI row is now Tasks Tracked / Completed / In Progress / Not Started
+  / Verified by Supervisor. Divisional Officer Compliance's own rendering
+  path, KPI row, by-officer table, and Yes/No/N-A checklist are byte-for-
+  byte unchanged. The Overview tab's combined card updated to show the new
+  Admin Compliance KPI set alongside the untouched Divisional Officer one.
+  The "shared task" ("Other Assigned Tasks") still appears in both
+  sections, now tracked completely differently in each (per-officer
+  Yes/No/N-A under Divisional Officer, per-task completion+verification
+  under Admin Compliance) -- confirmed independent in the browser. Verified
+  with a Playwright sweep (zero console errors, Divisional Officer section
+  visually/structurally identical to before, Admin Compliance's new
+  dropdowns work and update KPIs live) and PPT export checks of both the
+  Overview tab (13 slides) and the tab itself (9 slides), none empty.
+  172/174 tests passing (same 2 pre-existing sandbox-only failures;
+  Python-side pipeline untouched this round, so no test changes needed).
 - **Part 2 (dashboard)**: done. `src/dashboard/{build.py,template.html}` ->
   `output/dashboard.html`, single self-contained file, Chart.js inlined
   (`src/dashboard/chart.umd.min.js`, downloaded once, not CDN-loaded).
