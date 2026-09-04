@@ -14,3 +14,12 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Optional password protection: set both to enable HTTP Basic Auth on
+      # every route except /healthz. `sync: false` means Render prompts for
+      # the value in its dashboard instead of storing it in this file --
+      # never commit the actual username/password here. Leave both unset
+      # (or blank) to run without a login, same as before.
+      - key: EPI_AUTH_USERNAME
+        sync: false
+      - key: EPI_AUTH_PASSWORD
+        sync: false

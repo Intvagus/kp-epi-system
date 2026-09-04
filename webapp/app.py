@@ -4,13 +4,20 @@ src/bulletin modules the CLI (run_weekly.py) uses -- this file adds no new
 data logic of its own, only file handling and per-job isolation.
 
 Each upload gets its own temp directory (data/raw, data/processed, output)
-so concurrent users never see each other's files. No login is required (by
-the project owner's explicit choice) -- job IDs are random UUIDs so results
-aren't guessable/enumerable, which is the only isolation in place; treat any
-URL as knowable by whoever has the link.
+so concurrent users never see each other's files. Job IDs are random UUIDs
+so results aren't guessable/enumerable -- still treat any URL as knowable by
+whoever has the link once shared.
+
+Optional password protection: if EPI_AUTH_USERNAME and EPI_AUTH_PASSWORD are
+both set in the environment, every route except /healthz requires HTTP Basic
+Auth (the browser's native username/password prompt). Deliberately opt-in,
+not hardcoded -- unset in local dev by default, set as secret env vars in
+Render's dashboard for the deployed instance. /healthz is always open since
+Render's health check has no way to supply credentials.
 """
 import json
 import os
+import secrets
 import shutil
 import sys
 import tempfile
@@ -19,7 +26,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from flask import Flask, abort, redirect, render_template, request, send_file, url_for
+from flask import Flask, Response, abort, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +48,28 @@ JOB_MAX_AGE_SECONDS = 24 * 3600  # jobs older than this get swept on the next up
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024  # 60 MB total upload cap
+
+AUTH_USERNAME = os.environ.get("EPI_AUTH_USERNAME")
+AUTH_PASSWORD = os.environ.get("EPI_AUTH_PASSWORD")
+AUTH_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
+
+
+@app.before_request
+def _require_auth():
+    if not AUTH_ENABLED or request.path == "/healthz":
+        return None
+    auth = request.authorization
+    valid = (
+        auth is not None
+        and secrets.compare_digest(auth.username or "", AUTH_USERNAME)
+        and secrets.compare_digest(auth.password or "", AUTH_PASSWORD)
+    )
+    if not valid:
+        return Response(
+            "Authentication required.", 401,
+            {"WWW-Authenticate": 'Basic realm="KP EPI Dashboard"'},
+        )
+    return None
 
 
 def _job_paths(job_id: str) -> dict:
