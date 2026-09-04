@@ -13,6 +13,7 @@ import pandas as pd
 
 from . import indicators
 from .clean import QualityLog, clean_district, clean_tehsil, clean_uc
+from .coverage_summary import build_coverage_summary
 from .load import load_all_workbooks
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -107,6 +108,10 @@ def run(raw_dir: Path | None = None, processed_dir: Path | None = None):
     }
     with open(processed_dir / "data_quality_report.json", "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
+
+    coverage_summary = build_coverage_summary(district_all, uc_all)
+    with open(processed_dir / "coverage_summary.json", "w", encoding="utf-8") as f:
+        json.dump(coverage_summary, f, indent=2, default=str)
 
     print("\nData quality summary:")
     print(f"  {len(log.exclusions)} rows excluded (see exclusions_log.csv)")

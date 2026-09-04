@@ -189,20 +189,47 @@ def run_vpd(raw_dir: Path | None = None, processed_dir: Path | None = None,
             "age_distribution": ind.age_distribution(msl),
             "district_breakdown": ind.district_breakdown(msl).to_dict(orient="records"),
             "weekly_trend": ind.msl_weekly_trend(msl).to_dict(orient="records"),
+            "reporting_footprint": ind.reporting_footprint(msl),
+            "sex_breakdown": ind.sex_breakdown(msl),
+            "outcome_breakdown": ind.outcome_breakdown(msl),
+            "complications_breakdown": ind.complications_breakdown(msl),
+            "top_districts": ind.top_districts_by_cases(msl, 10),
+            "daily_epi_curve": ind.daily_epi_curve(msl),
+            "data_quality": {
+                "duplicate_epid": ind.duplicate_epid_summary(msl),
+                "under_age_vaccinated_anomaly": ind.under_eligible_age_vaccinated_anomaly(msl),
+                "field_completeness": ind.field_completeness(msl),
+                "classification_discordance": ind.classification_discordance_matrix(msl),
+                "lab_confirmed_dose_validation": ind.lab_confirmed_dose_validation(msl),
+                "timeliness": ind.timeliness_buckets(msl),
+            },
+            "outbreak_alert": ind.measles_outbreak_alert_ucs(msl, latest_week),
         },
         "diphtheria": {
             "ytd": ind.diphtheria_summary(diphtheria),
             "latest_week": ind.diphtheria_summary(diphtheria, latest_week),
             "weekly_trend": ind.weekly_case_counts(diphtheria).to_dict(orient="records"),
+            "district_map": ind.diphtheria_district_map(diphtheria),
+            "age_dose_breakdown": ind.diphtheria_age_dose_breakdown(diphtheria),
         },
         "pertussis": {
+            # total_cases is len(pertussis) directly, not a sum of
+            # district_breakdown -- district_breakdown groups by district,
+            # which silently drops the 1 row with a missing/null district
+            # (pandas groupby excludes NaN keys), so summing it would
+            # undercount the true case total by that row.
+            "total_cases": len(pertussis),
             "district_breakdown": ind.pertussis_district_counts(pertussis).to_dict(orient="records"),
             "weekly_trend": ind.weekly_case_counts(pertussis).to_dict(orient="records"),
+            "district_map": ind.pertussis_district_map(pertussis),
         },
         "nnt": {
             "ytd": {k: v for k, v in ind.nnt_summary(nnt).items() if k != "by_district"},
             "by_district_ytd": ind.nnt_summary(nnt)["by_district"].to_dict(orient="records"),
             "weekly_trend": ind.weekly_case_counts(nnt).to_dict(orient="records"),
+            "district_map": ind.nnt_district_map(nnt),
+            "mother_vaccination_history": ind.nnt_mother_vaccination_history(nnt),
+            "place_of_delivery": ind.nnt_place_of_delivery(nnt),
         },
         "afp": AFP_STUB,
     }
@@ -223,7 +250,8 @@ def run_vpd(raw_dir: Path | None = None, processed_dir: Path | None = None,
         flags_df.to_csv(processed_dir / "vpd_quality_flags.csv", index=False)
 
     print("\nVPD data quality summary:")
-    print(f"  {len(log.flags)} rows flagged, kept in data (see vpd_quality_flags.csv)")
+    print(f"  {len(log.flags)} rows flagged -- see vpd_quality_flags.csv (all kept in data except "
+          f"sheet_subheader_row_dropped, a non-case artifact row removed at cleaning)")
     if not flags_df.empty:
         for flag_type, count in flags_df["flag_type"].value_counts().to_dict().items():
             print(f"    - {flag_type}: {count}")

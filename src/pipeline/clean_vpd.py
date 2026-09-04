@@ -224,6 +224,20 @@ def clean_diphtheria(raw_df: pd.DataFrame, period_id: str, log):
 
 def clean_pertussis(raw_df: pd.DataFrame, period_id: str, log):
     df = _rename_positional(raw_df, PERTUSSIS_COLUMNS_HEAD, "Pertusis line-list")
+    # This sheet has a 2-row merged sub-header ("Condition of Specimen" ->
+    # "Quantity Adequate"/"Cold Chain OK", columns 25-26) but the loader only
+    # skips 1 header row (VPD_HEADER_ROW), so the sub-header text itself is
+    # read in as the first "data" row -- entirely blank except for those two
+    # literal header strings, confirmed by direct inspection of the source
+    # workbook. Every real case row has a serial number; this artifact row
+    # does not, so it's the reliable way to identify and drop it (never
+    # silently -- flagged in the quality log by row position since it has no
+    # Epid number of its own).
+    header_artifact = df["sr_no"].isna()
+    for idx in df.index[header_artifact]:
+        log.flag(period_id, "pertussis_case", f"row {idx}", "sheet_subheader_row_dropped",
+                  detail="Blank row matching the 'Condition of Specimen' merged sub-header, not a real case")
+    df = df.loc[~header_artifact].reset_index(drop=True)
     df = _coerce_dates(df, [
         "onset_date", "notification_date", "investigation_date", "last_dose_date",
         "specimen_sent_date", "specimen_received_lab_date", "report_sent_district_date",

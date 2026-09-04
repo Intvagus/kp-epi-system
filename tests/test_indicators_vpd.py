@@ -33,6 +33,23 @@ def nnt():
     return pd.read_parquet(PROCESSED_DIR / "vpd_nnt_cases.parquet")
 
 
+@pytest.fixture(scope="module")
+def pertussis():
+    return pd.read_parquet(PROCESSED_DIR / "vpd_pertussis_cases.parquet")
+
+
+def test_pertussis_sheet_subheader_artifact_row_is_dropped(pertussis):
+    """The Pertussis sheet has a 2-row merged sub-header ('Condition of
+    Specimen' -> 'Quantity Adequate'/'Cold Chain OK'); the loader only skips
+    1 header row, so without this fix the sub-header text itself would be
+    read in as a 45th, entirely-blank 'case' row. Confirmed by direct
+    inspection of the source workbook: exactly 44 real cases, serially
+    numbered 1-44, plus that 1 artifact row."""
+    assert len(pertussis) == 44
+    assert pertussis["sr_no"].isna().sum() == 0
+    assert pertussis["district"].isna().sum() == 0
+
+
 def test_msl_suspected_ytd_matches_full_line_list_row_count(msl):
     assert ind.suspected_case_count(msl) == 10336
 
@@ -115,9 +132,105 @@ def test_msl_weekly_trend_sums_to_ytd_total(msl):
     assert list(trend["epi_week"]) == sorted(trend["epi_week"])
 
 
+def test_msl_weekly_trend_discarded_matches_raw_classification_count(msl):
+    trend = ind.msl_weekly_trend(msl)
+    assert trend["discarded"].sum() == int((msl["final_classification"] == "Discarded").sum())
+    assert trend["measles_confirmed"].sum() == int(msl["is_confirmed_measles"].sum())
+    assert trend["rubella_confirmed"].sum() == int(msl["is_confirmed_rubella"].sum())
+
+
 def test_diphtheria_weekly_trend_sums_to_ytd_total(diphtheria):
     trend = ind.weekly_case_counts(diphtheria)
     assert trend["case_count"].sum() == 167
+
+
+def test_reporting_footprint_counts_distinct_hfs_and_ucs(msl):
+    footprint = ind.reporting_footprint(msl)
+    assert footprint["reporting_health_facilities"] == 298
+    assert footprint["reporting_ucs"] == 1076
+    assert footprint["reporting_districts"] == 37
+
+
+def test_duplicate_epid_summary_matches_raw_duplicate_count(msl):
+    dup = ind.duplicate_epid_summary(msl)
+    assert dup["duplicate_epid_count"] == 40
+    assert dup["duplicate_row_count"] == 91
+    assert dup["by_district"][0]["duplicate_rows"] >= dup["by_district"][-1]["duplicate_rows"]
+
+
+def test_under_eligible_age_vaccinated_anomaly_matches_direct_count(msl):
+    anomaly = ind.under_eligible_age_vaccinated_anomaly(msl)
+    assert anomaly["under_age_case_count"] == 2032
+    assert anomaly["anomaly_count"] == 24
+
+
+def test_field_completeness_sorted_worst_first(msl):
+    rows = ind.field_completeness(msl)
+    pcts = [r["pct_complete"] for r in rows]
+    assert pcts == sorted(pcts)
+    assert all(0 <= p <= 100 for p in pcts)
+
+
+def test_classification_discordance_matrix_has_twelve_cells(msl):
+    result = ind.classification_discordance_matrix(msl)
+    assert len(result["cells"]) == 12
+    assert result["flagged_count"] > 0
+    total = sum(c["count"] for c in result["cells"])
+    assert total == len(msl)
+
+
+def test_lab_confirmed_dose_validation_counts_are_sane(msl):
+    result = ind.lab_confirmed_dose_validation(msl)
+    assert result["confirmed_case_count"] == int(msl["is_confirmed"].sum())
+    assert result["two_dose_count"] + result["one_dose_count"] <= result["confirmed_case_count"]
+    assert len(result["top_districts_two_dose"]) <= 10
+
+
+def test_timeliness_buckets_sum_to_evaluable_count(msl):
+    result = ind.timeliness_buckets(msl)
+    assert sum(result["buckets"].values()) == result["evaluable_count"]
+    assert result["negative_delay_count"] == 83
+
+
+def test_sex_breakdown_covers_all_rows(msl):
+    breakdown = ind.sex_breakdown(msl)
+    assert sum(breakdown.values()) == len(msl)
+
+
+def test_outcome_breakdown_covers_all_rows(msl):
+    breakdown = ind.outcome_breakdown(msl)
+    assert sum(breakdown.values()) == len(msl)
+    assert breakdown.get("Death") == 29
+
+
+def test_complications_breakdown_none_recorded_matches_nan_count(msl):
+    breakdown = ind.complications_breakdown(msl)
+    assert breakdown["None recorded"] == int(msl["complications"].isna().sum())
+    assert sum(breakdown.values()) >= len(msl)  # multi-complication rows count in >1 bucket
+
+
+def test_daily_epi_curve_has_no_gaps_and_rolling_avg_is_bounded(msl):
+    curve = ind.daily_epi_curve(msl)
+    assert len(curve) > 0
+    counts = [r["case_count"] for r in curve]
+    assert sum(counts) == int(msl["rash_onset_date"].notna().sum())
+    assert all(r["rolling_7d_avg"] <= max(counts) for r in curve)
+
+
+def test_top_districts_by_cases_is_sorted_descending(msl):
+    top = ind.top_districts_by_cases(msl, 5)
+    assert len(top) == 5
+    suspected = [r["suspected"] for r in top]
+    assert suspected == sorted(suspected, reverse=True)
+    assert top[0]["district"] == "D.I. Khan"
+
+
+def test_district_action_priority_covers_all_districts_and_orders_by_priority(msl):
+    rows = ind.district_action_priority(msl)
+    assert len(rows) == msl["district"].nunique()
+    priority_rank = {"Critical": 0, "Action": 1, "Monitor": 2}
+    ranks = [priority_rank[r["priority"]] for r in rows]
+    assert ranks == sorted(ranks)
 
 
 def test_nnt_death_outcome_synonyms_are_merged(nnt):

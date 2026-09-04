@@ -115,6 +115,7 @@
 
   function n(v) { return v === null || v === undefined ? "—" : Number(v).toLocaleString(); }
   function pct(v) { return v === null || v === undefined || isNaN(v) ? "—" : v.toFixed(0) + "%"; }
+  function plural(count, singular, pluralForm) { return (count === 1) ? singular : (pluralForm || singular + "s"); }
   function pct1(v) { return v === null || v === undefined || isNaN(v) ? "—" : v.toFixed(1) + "%"; }
 
   var CLASS_COLORS = {
@@ -230,7 +231,7 @@
       <div class="section">
         <div class="section-head nnt">NEONATAL TETANUS (NNT)</div>
         <div class="section-body nnt-narrative">
-          <div class="icon-line">👶 During ${B.week_label}, ${n(nnt.this_week_case_count)} suspected case(s) of NNT reported${nntThisWeekDistricts()}.</div>
+          <div class="icon-line">👶 During ${B.week_label}, ${n(nnt.this_week_case_count)} suspected ${plural(nnt.this_week_case_count, "case")} of NNT reported${nntThisWeekDistricts()}.</div>
           <div class="icon-line">💉 NNT cases ${B.cumulative_label} (n = ${n(nnt.cumulative_case_count)} cases).</div>
         </div>
       </div>
@@ -259,7 +260,7 @@
   function diphtheriaBullets() {
     var c = diph.this_week, cum = diph.cumulative;
     var items = [
-      n(c.case_count) + " case(s) reported during " + B.week_label + ".",
+      n(c.case_count) + " " + plural(c.case_count, "case") + " reported during " + B.week_label + ".",
       "<b>" + n(cum.case_count) + "</b> cases have been reported from <b>" + n(cum.districts_affected) +
         "</b> districts during " + B.cumulative_label + ".",
       "<b>" + n(cum.lab_confirmed_count) + "</b> lab confirmed.",
@@ -267,7 +268,7 @@
         ") of reported cases have no recorded DPT vaccination history.",
       "<b>" + pct(cum.pct_aged_5_plus) + "</b> (n=" + Math.round(cum.case_count * cum.pct_aged_5_plus / 100) +
         ") of cases are aged 5 years and above.",
-      cum.deaths > 0 ? "<b>" + n(cum.deaths) + "</b> diphtheria-related death(s) reported to date." :
+      cum.deaths > 0 ? "<b>" + n(cum.deaths) + "</b> diphtheria-related " + plural(cum.deaths, "death") + " reported to date." :
         "Zero diphtheria-related deaths reported to date.",
     ];
     return items.map(function (b) { return "<li>" + b + "</li>"; }).join("");

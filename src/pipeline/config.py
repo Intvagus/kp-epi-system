@@ -77,6 +77,51 @@ PROVINCE_TOTAL_NAME = "KP Province Total"
 
 JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 
+# Maps this project's 36 real Coverage-file district names (KP Province Total
+# excluded -- it's a province-wide aggregate row, not a district) to the
+# boundary polygon name in dashboard/kp_districts.geojson.
+#
+# As of this map's replacement, this is an IDENTITY mapping: every district,
+# including every newer sub-split (Chitral, Kohistan, Kurram, South
+# Waziristan), has its own real, separate boundary polygon -- extracted from
+# the user-provided reference map (KP_MAP_1.pptx, a labeled district-level
+# vector map; geometry traced from its own vector shapes, bezier curves
+# flattened and Douglas-Peucker-simplified for embedding size, district
+# names confirmed by direct visual inspection against the pipeline's own
+# district-name spelling). The dict is kept (rather than dropped for a plain
+# set) because build_district_map()/rca_district_map()/
+# supervisory_district_map() all key off it generically, and because it's
+# still the single place that would need a real combining entry if a future
+# boundary set ever lacked one of these polygons again.
+#
+# One assumption flagged, not guessed at silently: SW Wazir Belt / SW Mehsud
+# Belt (South Waziristan's tribal-belt-based split) are matched to the
+# reference map's "Wazir Belt (Upper)" / "Mehsud Belt (Lower)" shapes by
+# adjacency -- Wazir Belt borders North Waziristan directly in the source
+# map, consistent with it being the northern sub-division; Mehsud Belt does
+# not. The reference map has no per-shape name embedded to confirm this
+# directly (see extraction notes) -- flagged here in case a more direct
+# source of the belt boundary emerges.
+#
+# Verified exhaustive for the Coverage domain: every one of the 36 real
+# district names has an entry here, and every boundary name on the right
+# exists in kp_districts.geojson (see tests/test_coverage_summary.py).
+# Shared with the Monitoring domain's district maps (run_monitoring.py) --
+# a Monitoring district name that isn't spelled the same way here falls out
+# as "unmapped" (flagged, not guessed at), same as any other domain.
+DISTRICT_TO_BOUNDARY = {
+    "Abbottabad": "Abbottabad", "Bajaur": "Bajaur", "Bannu": "Bannu", "Battagram": "Battagram",
+    "Buner": "Buner", "Charsadda": "Charsadda", "Chitral Lower": "Chitral Lower", "Chitral Upper": "Chitral Upper",
+    "D.I. Khan": "D.I. Khan", "Dir Lower": "Dir Lower", "Dir Upper": "Dir Upper",
+    "Hangu": "Hangu", "Haripur": "Haripur", "Karak": "Karak", "Khyber": "Khyber", "Kohat": "Kohat",
+    "Kohistan Lower": "Kohistan Lower", "Kohistan Upper": "Kohistan Upper", "Kolai Palas Kohistan": "Kolai Palas Kohistan",
+    "Kurram Lower and Central": "Kurram Lower and Central", "Kurram Upper": "Kurram Upper", "Lakki Marwat": "Lakki Marwat",
+    "Malakand": "Malakand", "Mansehra": "Mansehra", "Mardan": "Mardan", "Mohmand": "Mohmand",
+    "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
+    "Peshawar": "Peshawar", "SW Mehsud Belt": "SW Mehsud Belt", "SW Wazir Belt": "SW Wazir Belt",
+    "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
+}
+
 # --- VPD surveillance (domain 2) ---
 # Case-level line lists, one workbook per reporting run (filename carries the week
 # range, e.g. "KP VPDs Line List Week 1-32,2026.xlsx"). Confirmed with the user:
@@ -118,6 +163,27 @@ DOSE_STATUS_UNKNOWN = "Unknown"
 DOSE_STATUS_MAX_PLAUSIBLE = 4  # a value above this (e.g. the '111' seen in the Diphtheria sheet) is a data error, not a real dose count
 
 _VPD_WEEK_RANGE_RE = re.compile(r"week\s+(\d+)\s*-\s*(\d+)\s*,\s*(\d{4})", re.I)
+
+
+# --- Monitoring / supervisory visits (domain 3) ---
+# Two independent report exports from the field-monitoring system, both saved
+# as HTML tables with a ".xls" extension (not real Excel binary/OOXML --
+# confirmed via `file`), so they're read with pandas.read_html, not
+# openpyxl. Filenames carry no reliable period ("RCA_Report_2.xls",
+# "Supervisory_Checklist_Report.xls") -- the reporting window is read from
+# the data itself (min/max visit date), not inferred from the filename.
+RCA_VACCINE_ANTIGENS = [
+    "BCG", "HepB", "OPV 0", "OPV 1", "OPV 2", "OPV 3", "Rota 1", "Rota 2",
+    "Penta 1", "Penta 2", "Penta 3", "PCV 1", "PCV 2", "PCV 3",
+    "IPV I", "IPV II", "TCV", "MR I", "MR II",
+]
+
+RCA_STATUS_CANONICAL = {
+    "yesvaccinat": "Vaccinated",
+    "notvaccinat": "Not Vaccinated",
+    "notapp": "Not Applicable",
+    "notapplicable": "Not Applicable",
+}
 
 
 def infer_vpd_period(filename: str) -> Period:

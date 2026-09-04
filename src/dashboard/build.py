@@ -40,6 +40,11 @@ UC_FIELDS = [
     "district", "tehsil", "uc_code", "uc_name", "period_id",
     "bcg_pct", "penta1_pct", "penta2_pct", "penta3_pct", "ipv1_pct", "ipv2_pct",
     "mr1_pct", "fic_pct", "tcv_pct", "dropout_pct",
+    # UC-level-only antigens (no raw count/target at District/Tehsil level in
+    # the source file -- see CLAUDE.md and the Service Delivery tab's
+    # "Additional Antigens (Union Council Level Only)" section).
+    "opv0_pct", "opv1_pct", "opv2_pct", "opv3_pct", "pcv1_pct", "pcv2_pct", "pcv3_pct",
+    "rota1_pct", "rota2_pct",
     "access_rating", "utilisation_rating", "category",
     "is_zero_target", "is_outlier", "is_negative_dropout", "is_consistency_fail",
     "consistency_fail_count",
@@ -101,25 +106,95 @@ def _load_csv(processed_dir: Path, name: str) -> list[dict]:
     return _clean_records(pd.read_csv(path).to_dict(orient="records"))
 
 
-def build_payload(processed_dir: Path) -> dict:
-    district = _load_table(processed_dir, "coverage_district.parquet", DISTRICT_FIELDS)
-    periods = sorted(
-        {(d["period_id"], d["period_type"], d["period_label"]) for d in district},
-        key=lambda p: p[0],
-    )
-    # Prefer the latest monthly period as the default view; fall back to the
-    # latest period of any type if no monthly period is present.
-    monthly = [p for p in periods if p[1] == "monthly"]
-    default_period_id = (monthly[-1] if monthly else periods[-1])[0]
+COVERAGE_EMPTY_REPORT = {
+    "periods": [], "row_counts": {"district": 0, "tehsil": 0, "uc": 0},
+    "exclusions_total": 0, "flags_total": 0, "flags_by_type": {}, "exclusions_by_reason": {},
+}
 
-    with open(processed_dir / "data_quality_report.json", encoding="utf-8") as f:
-        coverage_report = json.load(f)
+
+def build_payload(processed_dir: Path) -> dict:
+    # Coverage is optional, same principle as VPD/supervision below: a job
+    # that only uploaded a VPD line list (no coverage workbook) must still
+    # get a working dashboard, with the Coverage tab showing an explicit
+    # "awaiting data" state instead of the whole build failing.
+    coverage_available = (processed_dir / "coverage_district.parquet").exists()
+    if coverage_available:
+        district = _load_table(processed_dir, "coverage_district.parquet", DISTRICT_FIELDS)
+        tehsil = _load_table(processed_dir, "coverage_tehsil.parquet", TEHSIL_FIELDS)
+        uc = _load_table(processed_dir, "coverage_uc.parquet", UC_FIELDS)
+        periods = sorted(
+            {(d["period_id"], d["period_type"], d["period_label"]) for d in district},
+            key=lambda p: p[0],
+        )
+        # Prefer the latest monthly period as the default view; fall back to
+        # the latest period of any type if no monthly period is present.
+        monthly = [p for p in periods if p[1] == "monthly"]
+        default_period_id = (monthly[-1] if monthly else periods[-1])[0]
+        with open(processed_dir / "data_quality_report.json", encoding="utf-8") as f:
+            coverage_report = json.load(f)
+        coverage_summary_path = processed_dir / "coverage_summary.json"
+        if coverage_summary_path.exists():
+            with open(coverage_summary_path, encoding="utf-8") as f:
+                coverage_summary = json.load(f)
+        else:
+            coverage_summary = {"status": "no_data"}
+    else:
+        district, tehsil, uc = [], [], []
+        periods = []
+        default_period_id = None
+        coverage_report = COVERAGE_EMPTY_REPORT
+        coverage_summary = {"status": "no_data"}
+
     vpd_summary_path = processed_dir / "vpd_summary.json"
     if vpd_summary_path.exists():
         with open(vpd_summary_path, encoding="utf-8") as f:
             vpd = json.load(f)
     else:
         vpd = VPD_AWAITING_STUB
+
+    vpd_indicator_summary_path = processed_dir / "vpd_indicator_summary.json"
+    if vpd_indicator_summary_path.exists():
+        with open(vpd_indicator_summary_path, encoding="utf-8") as f:
+            vpd_key_indicators = json.load(f)
+    else:
+        vpd_key_indicators = {
+            "status": "awaiting_data",
+            "message": "No Measles Indicator Sheet has been uploaded yet.",
+        }
+
+    monitoring_summary_path = processed_dir / "monitoring_summary.json"
+    if monitoring_summary_path.exists():
+        with open(monitoring_summary_path, encoding="utf-8") as f:
+            monitoring = json.load(f)
+    else:
+        monitoring = {
+            "rca": {"status": "awaiting_data", "message": (
+                "No RCA (Rapid Convenience Assessment) file has been received yet."
+            )},
+            "supervisory": {"status": "awaiting_data", "message": (
+                "No Supervisory Checklist file has been received yet."
+            )},
+        }
+
+    who_activities_path = processed_dir / "who_activities_summary.json"
+    if who_activities_path.exists():
+        with open(who_activities_path, encoding="utf-8") as f:
+            who_activities = json.load(f)
+    else:
+        who_activities = {
+            "status": "awaiting_data",
+            "message": "No WHO Supported Activities workbook has been uploaded yet.",
+        }
+
+    admin_activities_path = processed_dir / "admin_activities_summary.json"
+    if admin_activities_path.exists():
+        with open(admin_activities_path, encoding="utf-8") as f:
+            admin_activities = json.load(f)
+    else:
+        admin_activities = {
+            "status": "awaiting_data",
+            "message": "No Admin Activities checklist has been uploaded yet.",
+        }
 
     return {
         "config": {
@@ -133,9 +208,11 @@ def build_payload(processed_dir: Path) -> dict:
         "default_period_id": default_period_id,
         "coverage": {
             "district": district,
-            "tehsil": _load_table(processed_dir, "coverage_tehsil.parquet", TEHSIL_FIELDS),
-            "uc": _load_table(processed_dir, "coverage_uc.parquet", UC_FIELDS),
+            "tehsil": tehsil,
+            "uc": uc,
         },
+        "coverage_available": coverage_available,
+        "coverage_summary": coverage_summary,
         "quality": {
             "coverage_report": coverage_report,
             "coverage_flags": _load_csv(processed_dir, "quality_flags.csv"),
@@ -143,14 +220,10 @@ def build_payload(processed_dir: Path) -> dict:
             "vpd_flags": _load_csv(processed_dir, "vpd_quality_flags.csv"),
         },
         "vpd": vpd,
-        "supervision": {
-            "status": "awaiting_data",
-            "message": (
-                "No supervisory-visit data has been received yet. This tab will "
-                "populate automatically once a supervisory-visit file is added "
-                "to data/raw/ and the schema is confirmed."
-            ),
-        },
+        "vpd_key_indicators": vpd_key_indicators,
+        "monitoring": monitoring,
+        "who_activities": who_activities,
+        "admin_activities": admin_activities,
     }
 
 
@@ -161,13 +234,21 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     output_path = output_path or (PROJECT_ROOT / "output" / "dashboard.html")
 
     print("Building dashboard...")
-    for required in ["coverage_district.parquet", "coverage_tehsil.parquet",
-                      "coverage_uc.parquet", "data_quality_report.json"]:
-        if not (processed_dir / required).exists():
-            raise SystemExit(
-                f"Missing {processed_dir / required}. Run the coverage pipeline first "
-                f"to generate processed data before building the dashboard."
-            )
+    # Coverage, VPD, and Monitoring are each optional (see build_payload) --
+    # a dashboard with none of them is the one real error case, since there
+    # would be nothing to show at all.
+    has_coverage = (processed_dir / "coverage_district.parquet").exists()
+    has_vpd = (processed_dir / "vpd_summary.json").exists()
+    has_monitoring = (processed_dir / "monitoring_summary.json").exists()
+    has_indicator_sheet = (processed_dir / "vpd_indicator_summary.json").exists()
+    has_who_activities = (processed_dir / "who_activities_summary.json").exists()
+    has_admin_activities = (processed_dir / "admin_activities_summary.json").exists()
+    if not has_coverage and not has_vpd and not has_monitoring and not has_indicator_sheet and not has_who_activities and not has_admin_activities:
+        raise SystemExit(
+            f"No processed data found in {processed_dir}. Run the coverage, VPD, monitoring, "
+            f"indicator-sheet, WHO Supported Activities, and/or Admin Activities pipeline first "
+            f"to generate at least one dataset before building the dashboard."
+        )
 
     payload = build_payload(processed_dir)
     payload_json = json.dumps(payload, default=str, separators=(",", ":"))
@@ -176,12 +257,29 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
           f"{len(payload['quality']['coverage_flags'])} quality flags)")
 
     chartjs_source = (DASHBOARD_DIR / "chart.umd.min.js").read_text(encoding="utf-8")
+    # PPTX export ("Download PPT", alongside the existing client-side
+    # "Download PDF"): PptxGenJS's own standalone browser bundle (includes
+    # JSZip inlined, no other runtime dependency), fetched once via npm
+    # (registry.npmjs.org) and checked into the repo -- same "never fetched
+    # at build or view time" rule as Chart.js and the district boundaries.
+    pptxgenjs_source = (DASHBOARD_DIR / "pptxgen.bundle.js").read_text(encoding="utf-8")
+    # District/ADM2 boundaries for the Coverage/Monitoring choropleth maps.
+    # Traced from the user-provided reference map (KP_MAP_1.pptx) rather than
+    # the earlier geoBoundaries.org set, since it's a real per-district
+    # polygon for every current sub-split (Chitral, Kohistan, Kurram, South
+    # Waziristan) instead of one shared older boundary -- see
+    # config.DISTRICT_TO_BOUNDARY for the district-name mapping and the one
+    # flagged naming assumption. Checked into the repo, never fetched at
+    # build or view time, so the dashboard stays fully offline.
+    kp_geojson = (DASHBOARD_DIR / "kp_districts.geojson").read_text(encoding="utf-8")
     template = (DASHBOARD_DIR / "template.html").read_text(encoding="utf-8")
 
     html = (
         template
         .replace("/*__CHARTJS_SOURCE__*/", chartjs_source)
+        .replace("/*__PPTXGENJS_SOURCE__*/", pptxgenjs_source)
         .replace("/*__EPI_DATA_JSON__*/", payload_json)
+        .replace("/*__KP_GEOJSON__*/", kp_geojson)
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

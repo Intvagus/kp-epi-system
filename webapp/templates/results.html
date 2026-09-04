@@ -50,6 +50,29 @@
   </div>
   {% endif %}
 
+  {% if manifest.built.data_export_xlsx %}
+  <div class="card">
+    <h2>Processed Data Export</h2>
+    <a class="download" href="{{ url_for('job_file', job_id=job_id, filename=manifest.built.data_export_xlsx) }}">
+      {{ manifest.built.data_export_xlsx }} <span class="sub">district/UC/antigen tables + KPIs, one sheet per component you uploaded</span>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if manifest.detected %}
+  <div class="card">
+    <h2>What we found in your upload{{ "s" if manifest.detected|length > 1 else "" }}</h2>
+    {% for d in manifest.detected %}
+    <div style="font-size:12.5px; padding:4px 0; border-bottom:1px solid var(--border);">
+      <strong>{{ d.filename }}</strong> &mdash;
+      {% if d.type == "coverage" %}<span style="color:var(--good);">Coverage workbook</span>
+      {% elif d.type == "vpd" %}<span style="color:var(--good);">VPD surveillance line list</span>
+      {% else %}<span style="color:var(--poor);">not recognized</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if manifest.errors %}
   <div class="card">
     <h2 style="color:#c5221f;">Notices</h2>

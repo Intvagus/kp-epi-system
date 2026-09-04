@@ -1,5 +1,6 @@
 # Real health data -- never committed, uploaded fresh each run/session.
 data/raw/*.xlsx
+data/raw/*.xls
 data/processed/*
 output/*
 webapp/uploads/

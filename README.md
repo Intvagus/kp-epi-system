@@ -15,13 +15,30 @@ Once deployed (see `DEPLOY.md`), share the Render URL with anyone on the
 team who needs it. They:
 
 1. Open the link.
-2. Upload the coverage workbook(s) (required for the dashboard) and the VPD
-   line list (optional, needed for the Surveillance tab and the bulletin).
+2. Drop in one or more Excel files — a Coverage workbook, a VPD surveillance
+   line list, or both. **Neither is required and neither depends on the
+   other**: each file is identified automatically from its actual sheet
+   names (not its filename), so a Coverage-only upload gets a working
+   Coverage dashboard with the Surveillance tab showing "awaiting data," a
+   VPD-only upload gets the Surveillance dashboard + bulletin with the
+   Coverage tab showing "awaiting data," and uploading both gets everything.
+   A file that isn't recognized as either is reported clearly on the results
+   page — it doesn't block the files that were recognized.
 3. Optionally paste in this week's Key Messages (one per line) — leave blank
    to use the default set.
 4. Click **Generate dashboard & bulletin**.
-5. On the results page, open/download `dashboard.html` and the
-   `Bulletin_Week_N_year.pdf/.xlsx/.pptx` files.
+5. On the results page: `dashboard.html` (always built, whatever combination
+   was uploaded), the `Bulletin_Week_N_year.pdf/.xlsx/.pptx` files (only if a
+   VPD file was uploaded — the bulletin is VPD-only by design), and
+   `EPI_Data_Export.xlsx` — a multi-sheet export of the processed data
+   (district/UC tables, KPI summary, antigen summary, VPD summary) with a
+   sheet only for whatever was actually uploaded.
+
+The dashboard itself also has a **Download PDF** button (top right) that
+prints exactly what's currently on screen — whichever tab, period, and
+antigen/district selection you have open — since it's a plain browser print,
+not a server round-trip. Works the same way on a `dashboard.html` opened
+completely offline, not just through the web app.
 
 Nothing is saved permanently on the server — each upload gets its own
 temporary workspace that's cleared automatically after 24 hours. There is
@@ -44,9 +61,9 @@ folder. Nothing to install to use it week to week.
    - Coverage file (monthly or cumulative EPI coverage export) — same 4-sheet
      format as before (District / Tehsil / UC Wise Analysis - Coverages / UC
      Wise Analysis - Difference).
-   - VPD line list — the filename must contain the word "VPD" somewhere (e.g.
-     `KP VPDs Line List Week 1-33,2026.xlsx`), same 4 sheets as before (MSL,
-     Diphtheria, NNT, Pertussis line lists).
+   - VPD line list — identified automatically from its sheet names (MSL,
+     Diphtheria, NNT, Pertussis line lists), not from the filename — it no
+     longer needs to contain the word "VPD".
    - Never rename or edit files already in `data/raw/` — old files can stay
      there, the system reads the latest ones by content, not by deleting
      anything.
