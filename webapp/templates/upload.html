@@ -48,15 +48,19 @@
   <form id="upload-form" action="{{ url_for('generate') }}" method="post" enctype="multipart/form-data">
     <div class="card">
       <h2>EPI Excel files</h2>
-      <p class="hint">Drop in any combination -- a Coverage workbook, a VPD surveillance line list, or both. Each file is automatically identified from its actual content, so it doesn't matter which order you add them in, and you never need to upload every type just to see a dashboard:</p>
+      <p class="hint">Drop in any combination of the files below. Each file is automatically identified from its actual content, so it doesn't matter which order you add them in or which ones you include -- you never need to upload every type just to see a dashboard:</p>
       <ul class="hint-list">
-        <li><strong>Coverage</strong> only &rarr; get the Coverage dashboard</li>
-        <li><strong>VPD surveillance</strong> only &rarr; get the Surveillance dashboard + bulletin</li>
-        <li><strong>Both</strong> &rarr; get the full dashboard + bulletin</li>
+        <li><strong>Coverage</strong> workbook (District/Tehsil/UC sheets) &rarr; Service Delivery tab</li>
+        <li><strong>VPD surveillance</strong> line list &rarr; VPD Surveillance tab + bulletin</li>
+        <li><strong>RCA</strong> report &rarr; Service Delivery &rarr; Monitoring &amp; Supervision (RCA)</li>
+        <li><strong>Supervisory Checklist</strong> report &rarr; Service Delivery &rarr; Monitoring &amp; Supervision</li>
+        <li><strong>Measles Indicator Sheet</strong> workbook &rarr; VPD Surveillance &rarr; District-wise indicators</li>
+        <li><strong>WHO Supported Activities</strong> workbook &rarr; WHO Supported Activities tab</li>
+        <li><strong>Admin Activities Checklist</strong> workbook &rarr; Divisional Officer &amp; Admin Compliance tab</li>
       </ul>
-      <p class="hint">Monitoring/supervisory-visit uploads aren't supported yet -- no sample file has been received to build that pipeline against.</p>
+      <p class="hint">Any combination works -- upload just one file to get only that section, or all seven for the full dashboard. Sections with no matching upload show a clear "not uploaded yet" placeholder instead of an error.</p>
       <label class="file-label" for="files" id="drop-zone">Click to choose file(s), or drag &amp; drop here</label>
-      <input type="file" id="files" name="files" accept=".xlsx" multiple>
+      <input type="file" id="files" name="files" accept=".xlsx,.xls" multiple>
       <div class="file-list" id="file-list"></div>
     </div>
 
@@ -103,7 +107,7 @@
   document.getElementById("upload-form").addEventListener("submit", function (e) {
     if (!input.files.length) {
       e.preventDefault();
-      alert("Choose at least one .xlsx file first.");
+      alert("Choose at least one file first.");
       return;
     }
     document.getElementById("submit-btn").disabled = true;
