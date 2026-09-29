@@ -751,6 +751,59 @@
   so Render prompts for the values in its dashboard rather than storing them
   in git. `/healthz` stays open unconditionally since Render's health check
   has no way to supply credentials.
+- **Combined District/Tehsil sheet layout + partial-year cumulative period
+  bug, found from a real deployed-app upload, both fixed** (done): the user
+  tried uploading a real "Jan to Aug 2026.xlsx" coverage file on the live
+  Render deployment and got "Coverage pipeline: 1" error + "Nothing could
+  be generated" -- investigated by pulling the actual file apart with
+  openpyxl/pandas rather than guessing. Two independent, genuine source-
+  format issues found and fixed, not one:
+  1. **This source export's sheet layout changed**: instead of separate
+     `"District "`/`"Teshil "` sheets, this file has one
+     `"Dist & Teshil Summary"` sheet with the Tehsil-level block, the
+     District-level block, and the (still-unused) Category-rollup block
+     laid out side by side, separated by blank spacer columns -- confirmed
+     column-for-column identical to the old separate sheets otherwise, just
+     reshuffled. `config.py` gained `COMBINED_DISTRICT_TEHSIL_SHEET`;
+     `detect.py`'s `COVERAGE_SIGNATURE` now also matches this sheet name
+     explicitly (detection already accidentally worked off the 2 UC Wise
+     sheets alone, since `MIN_MATCHING_SHEETS` is 2, but this makes it
+     intentional rather than a lucky coincidence). `load.py` gained
+     `_load_district_and_tehsil()` (picks whichever layout is actually
+     present), `_load_combined_district_tehsil()`, and
+     `_find_header_blocks()` (splits the combined sheet's header row into
+     contiguous non-blank runs at the blank-column gaps, rather than
+     hardcoding fixed column offsets, so a harmless spacer-column-count
+     change in a future export doesn't silently misread the wrong data);
+     raises a clear error if the sheet's shape doesn't match what's
+     expected, never guesses. `clean_district`/`clean_tehsil` needed zero
+     changes -- the split-out dataframes are drop-in identical in shape to
+     what those functions already consumed from the old separate sheets.
+  2. **`infer_period` only recognized "Jan to Dec `<year>`" as cumulative**
+     -- "Jan to Aug 2026.xlsx" fell through to the generic month-year
+     regex and was silently misclassified as plain monthly "August 2026",
+     which would have shown 8 months of cumulative coverage numbers
+     labeled and analyzed as if they were one month's data. Generalized
+     `_JAN_TO_DEC_RE` -> `_JAN_TO_MONTH_RE` to match "Jan to `<any month>`
+     `<year>`", inferring a year-to-date cumulative period through
+     whichever month is named; the exact "Jan to Dec" case is unchanged
+     byte-for-byte (`period_id`/`label` identical, pinned by existing
+     `test_coverage_summary.py` assertions) since it's still routed through
+     the same `period_type: "cumulative_annual"` bucket the dashboard's
+     Monthly/Cumulative pill already understands -- a same-year partial-
+     and full-year cumulative upload get distinct `period_id`s
+     (`"<year>-cum-<month>"` vs `"<year>-annual"`) so they could never
+     collide.
+  Verified against the real uploaded file end-to-end: `load_workbook()` ->
+  correct 38 district-rows/142 tehsil-rows split -> `clean_district`/
+  `clean_tehsil` run clean -> full `run()` pipeline -> `build_dashboard()`
+  -> a real Flask `/generate` POST through the actual test client,
+  replicating the user's exact failing scenario, now producing a working
+  dashboard with no error notices. 7 new tests in
+  `tests/test_combined_district_tehsil.py` (skipped when the real file
+  isn't present, same convention as every other real-file-based test in
+  this project), including one pinning that the original "Jan to Dec"
+  case's output is untouched by the generalization.
 
 ## Web app / hosting
 
@@ -877,6 +930,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 |---|---|---|---|
 | `data/raw/Dec 2025 Coverage Analysis (0-11).xlsx` | District, Teshil, UC Wise Analysis - Coverages, UC Wise Analysis - Difference i | **Monthly**, December 2025 | `(0-11)` in the filename = age band (surviving infants 0–11 months), NOT calendar months. Confirmed this is the file the original build brief's data-quality numbers (925 consistency fails, 56 zero-target UCs, BCG 1203%, Tor Ghar target 95,554) were taken from — exact match. |
 | `data/raw/Jan to Dec 2025.xlsx` | same 4 sheets | **Cumulative**, Jan–Dec 2025 | Same 37 district rows, same structure, larger (annual) numbers. Gives us a real second time point instead of a stub. |
+| `data/raw/Jan to Aug 2026.xlsx` | `Mapping`, `Raw Data`, `UC Wise Analysis - Coverages`, `UC Wise Analysis - Difference i`, `Dist & Teshil Summary` | **Cumulative**, Jan–Aug 2026 | Same underlying data as the other Coverage files, but this export's District/Tehsil data is laid out as one combined `Dist & Teshil Summary` sheet instead of two separate sheets -- see the "Combined District/Tehsil sheet layout" round above (load.py now handles both layouts). `Mapping` (a district/tehsil/UC/facility code lookup) and `Raw Data` (a genuine per-UC raw-data sheet, not the broken formula reference described in the "Confirmed sheet structure" section below) are both new, unused by the pipeline so far -- nothing in the current dashboard needs them. |
 | `data/raw/RCA_Report_2.xls` | 1 HTML table, 50 columns, 340 child rows (34 RCA visits) | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
