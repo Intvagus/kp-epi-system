@@ -29,22 +29,38 @@ _MONTHS = {
 _MONTH_YEAR_RE = re.compile(
     r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b", re.I
 )
-_JAN_TO_DEC_RE = re.compile(r"jan\s+to\s+dec\s+(\d{4})", re.I)
+# "Jan to Dec <year>" was the only cumulative pattern originally seen (a full
+# completed year) -- generalized to "Jan to <any month> <year>" after a real
+# "Jan to Aug 2026.xlsx" upload showed the same source system also exports
+# year-to-date cumulative files partway through the year, not just full
+# years. The Dec case keeps its exact original period_id/label ("<year>-annual"
+# / "Jan-Dec <year> (cumulative)", pinned by existing tests); any other end
+# month gets its own distinct period_id so a same-year partial- and full-year
+# cumulative file could never collide.
+_JAN_TO_MONTH_RE = re.compile(
+    r"jan\s+to\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})", re.I
+)
 
 
 def infer_period(filename: str) -> Period:
     """Infer a Period from a raw filename. Raises with a clear message if it can't.
 
-    Recognises "<Month> <Year>..." -> monthly, and "Jan to Dec <Year>" -> cumulative_annual.
+    Recognises "<Month> <Year>..." -> monthly, and "Jan to <Month> <Year>" ->
+    cumulative (year-to-date through that month; "Jan to Dec" = full year).
     Anything else must be added to PERIOD_OVERRIDES by hand.
     """
     if filename in PERIOD_OVERRIDES:
         return PERIOD_OVERRIDES[filename]
 
-    m = _JAN_TO_DEC_RE.search(filename)
+    m = _JAN_TO_MONTH_RE.search(filename)
     if m:
-        year = m.group(1)
-        return Period(f"{year}-annual", "cumulative_annual", f"Jan-Dec {year} (cumulative)")
+        end_month, year = m.group(1).lower(), m.group(2)
+        if end_month == "dec":
+            return Period(f"{year}-annual", "cumulative_annual", f"Jan-Dec {year} (cumulative)")
+        return Period(
+            f"{year}-cum-{_MONTHS[end_month]:02d}", "cumulative_annual",
+            f"Jan-{end_month.title()} {year} (cumulative)",
+        )
 
     m = _MONTH_YEAR_RE.search(filename)
     if m:
@@ -71,6 +87,15 @@ SHEET_NAMES = {
     "uc_coverages": "UC Wise Analysis - Coverages",
     "uc_difference": "UC Wise Analysis - Difference i",
 }
+
+# A newer source export lays the District and Teshil sheets' data out as two
+# side-by-side blocks (plus a third, unused Category-rollup block) inside one
+# sheet instead of two separate sheets -- confirmed by direct inspection of a
+# real "Jan to Aug 2026" upload (2026-09). `load.py::_load_combined_district_tehsil`
+# splits this sheet back into the same district/tehsil shape the rest of the
+# pipeline already expects; `detect.py` accepts either layout as a valid
+# Coverage workbook.
+COMBINED_DISTRICT_TEHSIL_SHEET = "Dist & Teshil Summary"
 
 PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # mislabeled row in the District sheet
 PROVINCE_TOTAL_NAME = "KP Province Total"

@@ -19,11 +19,18 @@ import openpyxl
 import pandas as pd
 
 from .admin_activities import ADMIN_ACTIVITIES_SHEET, TASK_COLUMN_HEADER as ADMIN_ACTIVITIES_HEADER
-from .config import SHEET_NAMES, VPD_SHEET_NAMES
+from .config import COMBINED_DISTRICT_TEHSIL_SHEET, SHEET_NAMES, VPD_SHEET_NAMES
 from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
 from .who_activities import REQUIRED_SHEETS as WHO_ACTIVITIES_SIGNATURE
 
 COVERAGE_SIGNATURE = {name.strip().lower() for name in SHEET_NAMES.values()}
+# The combined-sheet layout (see config.py) replaces BOTH "District " and
+# "Teshil " with one sheet -- on its own it would only match the 2 UC Wise
+# sheets against COVERAGE_SIGNATURE, which happens to already clear
+# MIN_MATCHING_SHEETS, but counting it explicitly makes that intentional
+# rather than a lucky coincidence, and keeps this correct if MIN_MATCHING_SHEETS
+# or the UC sheet names ever change.
+COVERAGE_SIGNATURE.add(COMBINED_DISTRICT_TEHSIL_SHEET.strip().lower())
 VPD_SIGNATURE = {name.strip().lower() for name in VPD_SHEET_NAMES.values()}
 WHO_ACTIVITIES_SIGNATURE = {name.strip().lower() for name in WHO_ACTIVITIES_SIGNATURE}
 
