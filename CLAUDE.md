@@ -912,6 +912,80 @@
      is never the bare string `"1"`. Full suite 43 passing (154 skipped --
      other real-file-dependent tests not present in this environment, same
      pre-existing convention as every other round), 0 new failures.
+- **Full app recheck, found and fixed one significant previously-latent bug
+  plus hardened the exact-sheet-name-match bug class everywhere else it
+  existed** (done): the user asked for a full recheck of the whole app for
+  bugs "so it can run smoothly by everyone," plus an updated plain-English
+  Word guide.
+  1. **Sheet-name matching hardened for VPD, WHO Activities, and Admin
+     Activities** -- the same root cause already fixed for Coverage
+     (`load.py::resolve_sheet_name`, now extracted to a shared
+     `src/pipeline/sheet_utils.py` module) applied to every other domain
+     that reads a sheet by a fixed name: `load_vpd.py`'s 4 line-list
+     sheets, `who_activities.py`'s `HIGHLIGHTS_SHEET`/`EVIDENCE_SHEET`/
+     `RAW_SHEET`, and `admin_activities.py`'s `ADMIN_ACTIVITIES_SHEET`
+     (both in its own `find_admin_activities_files` detector AND in
+     `detect.py::_is_admin_activities_workbook`, which had the identical
+     exact-match fragility one layer up). Also fixed a real, previously-
+     latent bug this surfaced: `who_activities.py`/`admin_activities.py`
+     each independently RE-SCAN `raw_dir` for their own file inside
+     `run_who_activities()`/`run_admin_activities()`, using their own
+     exact-match sheet check -- completely separate from the
+     already-normalized `detect_workbook_type()` check `webapp/app.py`
+     uses to route the file. A file `detect_workbook_type()` correctly
+     classified could still make this internal re-scan find zero files,
+     silently returning `None` with **no error message at all** -- the
+     file shows up "recognized" (green) on the results page, but its tab
+     just displays "awaiting data" with no explanation why. Verified each
+     fix live: deliberately renamed sheets to a mismatched case/whitespace
+     variant (`"evidence & findings"`, `"WHO Highlights Dashboard "`,
+     `"admin activities"`) and confirmed detection + the full pipeline
+     both now succeed where they previously would have silently failed.
+  2. **A real, significant bug found via the project's own Excel template
+     pack (below) acting as its own first test case**: `coverage_summary.py`
+     `_province_row()` required an explicit `is_province_total` row (the
+     source system's own "Tor Ghar" convention -- see "Confirmed sheet
+     structure" below) to exist at all; without one, `build_executive_summary`
+     silently returned `{"status": "no_data"}`, which cascades into the
+     ENTIRE Overview tab's Service Delivery section and the Service Delivery
+     tab's own Executive Overview both showing "no data uploaded yet" --
+     despite every real per-district number being present and correctly
+     processed. Confirmed live: the Coverage template built for this round
+     (next item) initially omitted this non-obvious legacy row, and its own
+     generated dashboard silently showed this exact failure. Fixed with
+     `_computed_province_row()`: when no explicit province-total row
+     exists, one is computed by summing real counts/targets across the
+     actual district rows present and recomputing percentages from those
+     sums via the same `coverage_pct`/`penta_dropout_pct` functions already
+     used throughout this module -- never averaging reported percentages,
+     same "sum counts, don't average %" rule as every other province-wide
+     aggregate here (`uc_categorization`, etc.), so nothing is fabricated.
+     Verified exact-match-unchanged behavior for every file that DOES have
+     a real province-total row (re-ran the "Jan to Aug 2026.xlsx" real
+     sample file and confirmed its computed `fic_pct`/`dropout_pct`/
+     `target_bcg` match the real Tor Ghar row's own reported values
+     exactly -- the fallback path is never taken when a real row exists).
+     4 new unconditional tests in
+     `tests/test_coverage_summary_no_province_row.py` (synthetic
+     DataFrames, not gated behind real sample files), including one
+     pinning that a real province-total row still always takes priority
+     over the computed fallback.
+  3. **Excel template pack, round 2**: the Coverage template now also
+     includes a correctly-labeled "Tor Ghar" province-total row (computed
+     as the real sum of its own two example districts, so the file stays
+     internally consistent), with the Instructions tab explaining the
+     legacy-naming quirk in plain language and noting the dashboard now
+     computes this automatically if the row is left out. Every one of the
+     5 templates re-verified end-to-end against the live pipeline after
+     this round's fixes, including a combined 5-file upload through the
+     real `/generate` Flask route followed by a full Playwright sweep of
+     the generated dashboard (all 6 tabs, period pills, Admin Compliance
+     dropdowns, PDF export, PPT export producing a real 9-slide non-empty
+     deck) -- zero console errors, and the Overview tab's Service Delivery
+     section now shows real computed numbers instead of the false "no data"
+     state found above.
+  4. Full suite 47 passing (154 skipped, same pre-existing convention), 0
+     new failures.
 
 ## Web app / hosting
 

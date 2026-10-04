@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import COMBINED_DISTRICT_TEHSIL_SHEET, SHEET_NAMES, infer_period
+from .sheet_utils import resolve_sheet_name
 from .detect import detect_workbook_type
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -25,25 +26,11 @@ def find_raw_files(raw_dir: Path | None = None) -> list[Path]:
     return files
 
 
-def _resolve_sheet_name(available_sheets: list[str], expected_name: str) -> str | None:
-    """Source exports have been seen with and without a trailing space on
-    sheet names (e.g. 'District ' vs 'District', confirmed by a real upload
-    that genuinely lacked the trailing space the original sample files had)
-    -- match by normalized (stripped, case-insensitive) name and return
-    whichever real sheet name is actually present, rather than requiring an
-    exact match. Returns None if no sheet matches."""
-    target = expected_name.strip().lower()
-    for name in available_sheets:
-        if name.strip().lower() == target:
-            return name
-    return None
-
-
 def _read_sheet(path: Path, sheet_key: str, available_sheets: list[str] | None = None) -> pd.DataFrame:
     expected_name = SHEET_NAMES[sheet_key]
     if available_sheets is None:
         available_sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
-    actual_name = _resolve_sheet_name(available_sheets, expected_name)
+    actual_name = resolve_sheet_name(available_sheets, expected_name)
     if actual_name is None:
         raise ValueError(
             f"Sheet {expected_name!r} not found in {path.name}. "
@@ -84,7 +71,7 @@ def _load_combined_district_tehsil(path: Path, available_sheets: list[str]) -> t
     offsets, so a harmless change in spacer-column count doesn't silently
     misread the wrong columns -- and raises a clear error rather than
     guessing if the sheet's shape doesn't match what's expected."""
-    actual_name = _resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET)
+    actual_name = resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET)
     raw = pd.read_excel(path, sheet_name=actual_name, header=None, engine="openpyxl")
     header_row = raw.iloc[0]
     data = raw.iloc[1:].reset_index(drop=True)
@@ -121,14 +108,14 @@ def _load_district_and_tehsil(path: Path) -> dict:
     or the newer combined-sheet layout -- whichever is actually present in
     this workbook (see COMBINED_DISTRICT_TEHSIL_SHEET above)."""
     available_sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
-    has_district = _resolve_sheet_name(available_sheets, SHEET_NAMES["district"]) is not None
-    has_tehsil = _resolve_sheet_name(available_sheets, SHEET_NAMES["tehsil"]) is not None
+    has_district = resolve_sheet_name(available_sheets, SHEET_NAMES["district"]) is not None
+    has_tehsil = resolve_sheet_name(available_sheets, SHEET_NAMES["tehsil"]) is not None
     if has_district and has_tehsil:
         return {
             "district": _read_sheet(path, "district", available_sheets),
             "tehsil": _read_sheet(path, "tehsil", available_sheets),
         }
-    if _resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET) is not None:
+    if resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET) is not None:
         district_df, tehsil_df = _load_combined_district_tehsil(path, available_sheets)
         return {"district": district_df, "tehsil": tehsil_df}
     raise ValueError(
