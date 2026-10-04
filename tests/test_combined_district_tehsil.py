@@ -23,6 +23,7 @@ from src.pipeline.load import load_workbook
 
 RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 COMBINED_FILE = RAW_DIR / "Jan to Aug 2026.xlsx"
+NO_TRAILING_SPACE_FILE = RAW_DIR / "Jan to Aug 2026-4.xlsx"
 
 pytestmark = pytest.mark.skipif(
     not COMBINED_FILE.exists(),
@@ -98,3 +99,45 @@ def test_clean_district_and_tehsil_run_without_error_on_combined_layout():
     assert len(tehsil) <= 142  # junk rows excluded
     assert "bcg_pct_reported" in district.columns
     assert "bcg_pct_reported" in tehsil.columns
+
+
+@pytest.mark.skipif(
+    not NO_TRAILING_SPACE_FILE.exists(),
+    reason="Real no-trailing-space-sheet-name Coverage file not present in this environment",
+)
+class TestNoTrailingSpaceSheetNames:
+    """A third real-world Coverage export variant (2026-10): separate
+    "District"/"Teshil" sheets like the original layout, but WITHOUT the
+    trailing space the original sample files had on those exact sheet
+    names -- config.py's SHEET_NAMES hardcodes 'District '/'Teshil ' (with
+    the trailing space), and _read_sheet() used to require an exact sheet
+    name match, so this file failed with "Sheet 'District ' not found"
+    even though detection correctly recognized it as a Coverage workbook.
+    Fixed by resolving the actual sheet name via a normalized
+    (stripped, case-insensitive) match (load.py::_resolve_sheet_name) rather
+    than an exact string match, used uniformly for every sheet lookup."""
+
+    def test_detected_as_coverage_workbook(self):
+        result = detect_workbook_type(NO_TRAILING_SPACE_FILE)
+        assert result.workbook_type == "coverage"
+
+    def test_load_workbook_reads_district_and_tehsil_sheets(self):
+        wb = load_workbook(NO_TRAILING_SPACE_FILE)
+        assert len(wb["sheets"]["district"]) == 37
+        assert len(wb["sheets"]["tehsil"]) == 139
+        assert "Abbottabad" in set(wb["sheets"]["district"]["District"])
+
+    def test_load_workbook_uc_sheets_also_read_correctly(self):
+        wb = load_workbook(NO_TRAILING_SPACE_FILE)
+        assert len(wb["sheets"]["uc_coverages"]) > 0
+        assert len(wb["sheets"]["uc_difference"]) > 0
+
+    def test_clean_district_and_tehsil_run_without_error(self):
+        wb = load_workbook(NO_TRAILING_SPACE_FILE)
+        log = QualityLog()
+        period_id = wb["period"].period_id
+        district = clean_district(wb["sheets"]["district"], period_id, log)
+        tehsil = clean_tehsil(wb["sheets"]["tehsil"], period_id, log)
+        assert len(district) == 37
+        assert district["is_province_total"].sum() == 1
+        assert len(tehsil) > 0

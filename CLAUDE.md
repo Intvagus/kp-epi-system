@@ -804,6 +804,34 @@
   isn't present, same convention as every other real-file-based test in
   this project), including one pinning that the original "Jan to Dec"
   case's output is untouched by the generalization.
+- **A third real Coverage export variant, found from another real deployed-
+  app upload, fixed the same day as the password-protection feature shipped**
+  (done): a "Jan to Aug 2026-4.xlsx" upload failed identically ("Coverage
+  pipeline: 1" / "Nothing could be generated"), despite being a genuinely
+  different problem from the combined-sheet-layout fix above. Confirmed by
+  direct inspection: this file has separate `District`/`Teshil` sheets (the
+  original, pre-combined-sheet layout), but **without the trailing space**
+  `config.py`'s `SHEET_NAMES` hardcodes (`"District "`/`"Teshil "`, a quirk
+  of the very first sample files this project was built against). Detection
+  already worked (`detect.py`'s signature strips before comparing), but
+  `load.py::_read_sheet` required an exact sheet-name match, so
+  `pd.read_excel(sheet_name="District ")` failed to find a sheet actually
+  named `"District"` even though it's the obvious same sheet. Fixed with a
+  new `_resolve_sheet_name()` that matches by normalized (stripped,
+  case-insensitive) name against whatever sheets are actually present and
+  returns the real sheet name to read -- used uniformly by `_read_sheet`,
+  `_load_district_and_tehsil`'s own layout-detection check, and
+  `_load_combined_district_tehsil`, so all three known sheet-naming variants
+  (trailing-space separate sheets, combined sheet, no-trailing-space
+  separate sheets) now resolve the same way instead of three different
+  hardcoded comparisons drifting out of sync with each other. Verified
+  against the real file end-to-end (load -> clean -> full pipeline run ->
+  dashboard build -> an actual Flask `/generate` POST), plus the full
+  existing test suite (39 passing, 0 new failures). 4 new tests in
+  `tests/test_combined_district_tehsil.py::TestNoTrailingSpaceSheetNames`.
+  Between this and the two fixes above it, every Coverage sheet-naming
+  variant actually seen in production so far is now handled by one shared
+  normalization path rather than three separate hardcoded assumptions.
 
 ## Web app / hosting
 
@@ -931,6 +959,7 @@ dashboard and bulletin are mathematically incapable of disagreeing.
 | `data/raw/Dec 2025 Coverage Analysis (0-11).xlsx` | District, Teshil, UC Wise Analysis - Coverages, UC Wise Analysis - Difference i | **Monthly**, December 2025 | `(0-11)` in the filename = age band (surviving infants 0–11 months), NOT calendar months. Confirmed this is the file the original build brief's data-quality numbers (925 consistency fails, 56 zero-target UCs, BCG 1203%, Tor Ghar target 95,554) were taken from — exact match. |
 | `data/raw/Jan to Dec 2025.xlsx` | same 4 sheets | **Cumulative**, Jan–Dec 2025 | Same 37 district rows, same structure, larger (annual) numbers. Gives us a real second time point instead of a stub. |
 | `data/raw/Jan to Aug 2026.xlsx` | `Mapping`, `Raw Data`, `UC Wise Analysis - Coverages`, `UC Wise Analysis - Difference i`, `Dist & Teshil Summary` | **Cumulative**, Jan–Aug 2026 | Same underlying data as the other Coverage files, but this export's District/Tehsil data is laid out as one combined `Dist & Teshil Summary` sheet instead of two separate sheets -- see the "Combined District/Tehsil sheet layout" round above (load.py now handles both layouts). `Mapping` (a district/tehsil/UC/facility code lookup) and `Raw Data` (a genuine per-UC raw-data sheet, not the broken formula reference described in the "Confirmed sheet structure" section below) are both new, unused by the pipeline so far -- nothing in the current dashboard needs them. |
+| `data/raw/Jan to Aug 2026-4.xlsx` | `District`, `Teshil`, `UC Wise Analysis - Coverages`, `UC Wise Analysis - Difference i` | **Cumulative**, Jan–Aug 2026 | Same underlying data again, but a third sheet-naming variant: separate `District`/`Teshil` sheets like the original layout, just without the trailing space the original sample files had on those exact names -- see the "no-trailing-space sheet names" round above (load.py's sheet lookup is now whitespace/case-normalized everywhere, not just for this one case). |
 | `data/raw/RCA_Report_2.xls` | 1 HTML table, 50 columns, 340 child rows (34 RCA visits) | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Supervisory_Checklist_Report.xls` | 1 HTML table, 137 columns, 63 visit rows | Aug 2026, Abbottabad district only | See Part 1c above. |
 | `data/raw/Indicator_SheetMeasles.xlsx` | 7 sheets, one per year (2020-2026) | 2026 sheet used (all 37 real districts + Provincial Total) | See Part 1b above (indicator_sheet_vpd.py). |
