@@ -21,6 +21,7 @@ import pandas as pd
 from .admin_activities import ADMIN_ACTIVITIES_SHEET, TASK_COLUMN_HEADER as ADMIN_ACTIVITIES_HEADER
 from .config import COMBINED_DISTRICT_TEHSIL_SHEET, SHEET_NAMES, VPD_SHEET_NAMES
 from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
+from .sheet_utils import resolve_sheet_name
 from .who_activities import REQUIRED_SHEETS as WHO_ACTIVITIES_SIGNATURE
 
 COVERAGE_SIGNATURE = {name.strip().lower() for name in SHEET_NAMES.values()}
@@ -74,14 +75,17 @@ def _is_admin_activities_workbook(path: Path) -> bool:
     """Detected by sheet name ("Admin Activities") plus the task-column
     header text in A1 -- same "content, never filename" principle as every
     other domain, and the header check guards against an unrelated workbook
-    that happens to reuse the sheet name."""
+    that happens to reuse the sheet name. Sheet name matched by normalized
+    (stripped, case-insensitive) comparison, same as Coverage/VPD, rather
+    than requiring an exact string match."""
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception:
         return False
-    if ADMIN_ACTIVITIES_SHEET not in wb.sheetnames:
+    actual_name = resolve_sheet_name(wb.sheetnames, ADMIN_ACTIVITIES_SHEET)
+    if actual_name is None:
         return False
-    header = wb[ADMIN_ACTIVITIES_SHEET].cell(row=1, column=1).value
+    header = wb[actual_name].cell(row=1, column=1).value
     return bool(header) and str(header).strip() == ADMIN_ACTIVITIES_HEADER
 
 

@@ -14,7 +14,7 @@ the source files, so nothing here fabricates them.
 import pandas as pd
 
 from .config import COVERAGE_GOOD, COVERAGE_WARNING, DISTRICT_TO_BOUNDARY, DROPOUT_GOOD, OUTLIER_PCT_THRESHOLD
-from .indicators import coverage_rag, dropout_rag
+from .indicators import coverage_pct, coverage_rag, dropout_rag, penta_dropout_pct
 
 
 def _plural(count: int, singular: str, plural_form: str | None = None) -> str:
@@ -63,9 +63,39 @@ def _pick_period(district_all: pd.DataFrame, period_type: str) -> str | None:
     return periods[-1] if periods else None
 
 
-def _province_row(district_all: pd.DataFrame, period_id: str) -> pd.Series | None:
+def _computed_province_row(district_all: pd.DataFrame, period_id: str) -> dict | None:
+    """Fallback for a Coverage file that has no explicit province-total row
+    (the source system's own convention is a row literally labelled "Tor
+    Ghar" -- see clean.py/CLAUDE.md -- which every real sample file received
+    so far has had, but isn't something a hand-built file following the
+    Coverage template would obviously know to include). Computed the same
+    way every other province/district aggregate in this module already is:
+    summed raw counts and targets across the real district rows, then
+    coverage_pct/penta_dropout_pct recomputed from those sums -- never an
+    average of reported percentages, same "sum counts, don't average %s"
+    rule as uc_categorization above. Returns None only when there are
+    genuinely no district rows at all for this period."""
+    rows = district_all[(district_all["period_id"] == period_id) & (~district_all["is_province_total"])]
+    if rows.empty:
+        return None
+    row = {
+        "target_bcg": rows["target_bcg"].sum(skipna=True),
+        "target_surviving_infants": rows["target_surviving_infants"].sum(skipna=True),
+    }
+    for key, _ in DISTRICT_ANTIGENS:
+        n_sum = rows[f"{key}_n"].sum(skipna=True)
+        target = row["target_bcg"] if key == "bcg" else row["target_surviving_infants"]
+        row[f"{key}_n"] = n_sum
+        row[f"{key}_pct_reported"] = coverage_pct(n_sum, target)
+    row["dropout_pct_reported"] = penta_dropout_pct(rows["penta1_n"].sum(skipna=True), rows["penta3_n"].sum(skipna=True))
+    return row
+
+
+def _province_row(district_all: pd.DataFrame, period_id: str) -> pd.Series | dict | None:
     rows = district_all[(district_all["period_id"] == period_id) & (district_all["is_province_total"])]
-    return rows.iloc[0] if not rows.empty else None
+    if not rows.empty:
+        return rows.iloc[0]
+    return _computed_province_row(district_all, period_id)
 
 
 def _district_rows(district_all: pd.DataFrame, period_id: str) -> pd.DataFrame:

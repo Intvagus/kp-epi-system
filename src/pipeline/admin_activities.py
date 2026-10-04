@@ -61,6 +61,8 @@ from pathlib import Path
 
 import openpyxl
 
+from .sheet_utils import resolve_sheet_name
+
 ADMIN_ACTIVITIES_SHEET = "Admin Activities"
 TASK_COLUMN_HEADER = "Task / Administrative Responsibility"
 EVIDENCE_COLUMN_HEADER = "Remarks / Evidence"
@@ -114,8 +116,9 @@ def find_admin_activities_files(raw_dir: Path) -> list[Path]:
             wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         except Exception:
             continue
-        if ADMIN_ACTIVITIES_SHEET in wb.sheetnames:
-            header = wb[ADMIN_ACTIVITIES_SHEET].cell(row=1, column=1).value
+        actual_name = resolve_sheet_name(wb.sheetnames, ADMIN_ACTIVITIES_SHEET)
+        if actual_name is not None:
+            header = wb[actual_name].cell(row=1, column=1).value
             if header and str(header).strip() == TASK_COLUMN_HEADER:
                 files.append(path)
     return files
@@ -129,7 +132,10 @@ def load_admin_activities(path: Path) -> dict:
     so a future version of this file with more/fewer officer columns is
     handled without a code change."""
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb[ADMIN_ACTIVITIES_SHEET]
+    actual_name = resolve_sheet_name(wb.sheetnames, ADMIN_ACTIVITIES_SHEET)
+    if actual_name is None:
+        raise ValueError(f"Sheet {ADMIN_ACTIVITIES_SHEET!r} not found in {path.name}.")
+    ws = wb[actual_name]
 
     header = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
     header = [str(h).strip() if h is not None else None for h in header]

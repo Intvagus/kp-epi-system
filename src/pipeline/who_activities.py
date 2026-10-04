@@ -36,6 +36,7 @@ import openpyxl
 import pandas as pd
 
 from .config import DISTRICT_TO_BOUNDARY
+from .sheet_utils import resolve_sheet_name
 
 HIGHLIGHTS_SHEET = "WHO Highlights Dashboard"
 EVIDENCE_SHEET = "Evidence & Findings"
@@ -89,10 +90,15 @@ def find_who_activities_files(raw_dir: Path) -> list[Path]:
     files = []
     for path in sorted(raw_dir.glob("*.xlsx")):
         try:
-            sheets = set(pd.ExcelFile(path, engine="openpyxl").sheet_names)
+            sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
         except Exception:
             continue
-        if REQUIRED_SHEETS <= sheets:
+        # Matched by normalized (stripped, case-insensitive) name, not an
+        # exact set membership check -- this re-scan sits downstream of
+        # detect.py's own already-normalized WHO_ACTIVITIES_SIGNATURE match,
+        # so it must tolerate the same naming drift or a file detect.py
+        # correctly classified could still silently find zero files here.
+        if all(resolve_sheet_name(sheets, required) is not None for required in REQUIRED_SHEETS):
             files.append(path)
     return files
 
@@ -168,8 +174,15 @@ def load_who_activities(path: Path) -> dict:
     """Returns the raw-ish parsed content of all 3 sheets -- clean_who_activities()
     does the district canonicalization / theme tagging / validation on top of this."""
     wb = openpyxl.load_workbook(path, data_only=True)
-    highlights = wb[HIGHLIGHTS_SHEET]
-    evidence_df = _load_evidence_table(wb[EVIDENCE_SHEET])
+    highlights_name = resolve_sheet_name(wb.sheetnames, HIGHLIGHTS_SHEET)
+    evidence_name = resolve_sheet_name(wb.sheetnames, EVIDENCE_SHEET)
+    if highlights_name is None or evidence_name is None:
+        raise ValueError(
+            f"Expected sheets {HIGHLIGHTS_SHEET!r} and {EVIDENCE_SHEET!r} not both found in "
+            f"{path.name}. Sheets present: {wb.sheetnames}."
+        )
+    highlights = wb[highlights_name]
+    evidence_df = _load_evidence_table(wb[evidence_name])
 
     kpis = {
         "field_support_days": _cell(highlights, "A5"),
@@ -223,8 +236,9 @@ def load_who_activities(path: Path) -> dict:
     source_note = _cell(highlights, "A34")
 
     raw_text = None
-    if RAW_SHEET in wb.sheetnames:
-        raw_ws = wb[RAW_SHEET]
+    raw_sheet_name = resolve_sheet_name(wb.sheetnames, RAW_SHEET)
+    if raw_sheet_name is not None:
+        raw_ws = wb[raw_sheet_name]
         parts = []
         for row in raw_ws.iter_rows():
             for cell in row:

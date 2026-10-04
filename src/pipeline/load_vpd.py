@@ -10,6 +10,7 @@ import pandas as pd
 
 from .config import VPD_HEADER_ROW, VPD_SHEET_NAMES
 from .detect import detect_workbook_type
+from .sheet_utils import resolve_sheet_name
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,14 +24,19 @@ def find_vpd_files(raw_dir: Path | None = None) -> list[Path]:
     return sorted(p for p in raw_dir.glob("*.xlsx") if detect_workbook_type(p).workbook_type == "vpd")
 
 
-def _read_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
-    try:
-        df = pd.read_excel(path, sheet_name=sheet_name, header=VPD_HEADER_ROW - 1, engine="openpyxl")
-    except ValueError as e:
+def _read_sheet(path: Path, expected_name: str, available_sheets: list[str]) -> pd.DataFrame:
+    # Matched by normalized (stripped, case-insensitive) name, not an exact
+    # string -- same reasoning as src/pipeline/load.py's Coverage sheets:
+    # these sheet names are long and irregular ("Pertusis line-list", a
+    # trailing space on "DIPHTHERIA LINE-LIST "), so small naming drift
+    # between source exports is a real, already-seen risk, not hypothetical.
+    actual_name = resolve_sheet_name(available_sheets, expected_name)
+    if actual_name is None:
         raise ValueError(
-            f"Sheet {sheet_name!r} not found in {path.name}. "
-            f"Expected sheets: {list(VPD_SHEET_NAMES.values())}. Original error: {e}"
-        ) from e
+            f"Sheet {expected_name!r} not found in {path.name}. "
+            f"Expected sheets: {list(VPD_SHEET_NAMES.values())}. Sheets present: {available_sheets}."
+        )
+    df = pd.read_excel(path, sheet_name=actual_name, header=VPD_HEADER_ROW - 1, engine="openpyxl")
     df = df.dropna(how="all").reset_index(drop=True)
     df.columns = [str(c).strip() if not str(c).startswith("Unnamed") else None for c in df.columns]
     return df
@@ -38,8 +44,9 @@ def _read_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
 
 def load_vpd_workbook(path: Path) -> dict:
     print(f"  Loading {path.name} (VPD line lists)...")
+    available_sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
     sheets = {}
     for key, sheet_name in VPD_SHEET_NAMES.items():
-        sheets[key] = _read_sheet(path, sheet_name)
+        sheets[key] = _read_sheet(path, sheet_name, available_sheets)
         print(f"    {sheet_name.strip()}: {len(sheets[key])} case rows")
     return {"path": path, "sheets": sheets}
