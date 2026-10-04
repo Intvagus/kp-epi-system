@@ -25,15 +25,31 @@ def find_raw_files(raw_dir: Path | None = None) -> list[Path]:
     return files
 
 
-def _read_sheet(path: Path, sheet_key: str) -> pd.DataFrame:
-    sheet_name = SHEET_NAMES[sheet_key]
-    try:
-        df = pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
-    except ValueError as e:
+def _resolve_sheet_name(available_sheets: list[str], expected_name: str) -> str | None:
+    """Source exports have been seen with and without a trailing space on
+    sheet names (e.g. 'District ' vs 'District', confirmed by a real upload
+    that genuinely lacked the trailing space the original sample files had)
+    -- match by normalized (stripped, case-insensitive) name and return
+    whichever real sheet name is actually present, rather than requiring an
+    exact match. Returns None if no sheet matches."""
+    target = expected_name.strip().lower()
+    for name in available_sheets:
+        if name.strip().lower() == target:
+            return name
+    return None
+
+
+def _read_sheet(path: Path, sheet_key: str, available_sheets: list[str] | None = None) -> pd.DataFrame:
+    expected_name = SHEET_NAMES[sheet_key]
+    if available_sheets is None:
+        available_sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
+    actual_name = _resolve_sheet_name(available_sheets, expected_name)
+    if actual_name is None:
         raise ValueError(
-            f"Sheet {sheet_name!r} not found in {path.name}. "
-            f"Expected sheets: {list(SHEET_NAMES.values())}. Original error: {e}"
-        ) from e
+            f"Sheet {expected_name!r} not found in {path.name}. "
+            f"Expected sheets: {list(SHEET_NAMES.values())}. Sheets present: {available_sheets}."
+        )
+    df = pd.read_excel(path, sheet_name=actual_name, engine="openpyxl")
     # Excel exports pad sheets with thousands of fully-blank rows; trim them.
     df = df.dropna(how="all").reset_index(drop=True)
     df.columns = [str(c).strip() for c in df.columns]
@@ -57,7 +73,7 @@ def _find_header_blocks(header_row) -> list[list[int]]:
     return blocks
 
 
-def _load_combined_district_tehsil(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _load_combined_district_tehsil(path: Path, available_sheets: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """A newer source export lays the District and Teshil sheets' data out as
     two blank-column-separated blocks inside one sheet (see
     config.py::COMBINED_DISTRICT_TEHSIL_SHEET) instead of two separate
@@ -68,7 +84,8 @@ def _load_combined_district_tehsil(path: Path) -> tuple[pd.DataFrame, pd.DataFra
     offsets, so a harmless change in spacer-column count doesn't silently
     misread the wrong columns -- and raises a clear error rather than
     guessing if the sheet's shape doesn't match what's expected."""
-    raw = pd.read_excel(path, sheet_name=COMBINED_DISTRICT_TEHSIL_SHEET, header=None, engine="openpyxl")
+    actual_name = _resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET)
+    raw = pd.read_excel(path, sheet_name=actual_name, header=None, engine="openpyxl")
     header_row = raw.iloc[0]
     data = raw.iloc[1:].reset_index(drop=True)
 
@@ -103,11 +120,16 @@ def _load_district_and_tehsil(path: Path) -> dict:
     """District/Tehsil data comes from either the old separate-sheets layout
     or the newer combined-sheet layout -- whichever is actually present in
     this workbook (see COMBINED_DISTRICT_TEHSIL_SHEET above)."""
-    sheet_names = {s.strip() for s in pd.ExcelFile(path, engine="openpyxl").sheet_names}
-    if SHEET_NAMES["district"].strip() in sheet_names and SHEET_NAMES["tehsil"].strip() in sheet_names:
-        return {"district": _read_sheet(path, "district"), "tehsil": _read_sheet(path, "tehsil")}
-    if COMBINED_DISTRICT_TEHSIL_SHEET in sheet_names:
-        district_df, tehsil_df = _load_combined_district_tehsil(path)
+    available_sheets = pd.ExcelFile(path, engine="openpyxl").sheet_names
+    has_district = _resolve_sheet_name(available_sheets, SHEET_NAMES["district"]) is not None
+    has_tehsil = _resolve_sheet_name(available_sheets, SHEET_NAMES["tehsil"]) is not None
+    if has_district and has_tehsil:
+        return {
+            "district": _read_sheet(path, "district", available_sheets),
+            "tehsil": _read_sheet(path, "tehsil", available_sheets),
+        }
+    if _resolve_sheet_name(available_sheets, COMBINED_DISTRICT_TEHSIL_SHEET) is not None:
+        district_df, tehsil_df = _load_combined_district_tehsil(path, available_sheets)
         return {"district": district_df, "tehsil": tehsil_df}
     raise ValueError(
         f"{path.name} has neither separate {SHEET_NAMES['district']!r}/{SHEET_NAMES['tehsil']!r} sheets "
