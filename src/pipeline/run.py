@@ -39,7 +39,10 @@ def run(raw_dir: Path | None = None, processed_dir: Path | None = None):
         workbooks = load_all_workbooks(raw_dir)
     except Exception as e:
         print(f"\nFAILED while loading raw Excel files: {e}", file=sys.stderr)
-        raise SystemExit(1) from e
+        # Preserve the real message (e.g. a specific missing-sheet error) --
+        # SystemExit(1) alone would discard it, leaving only a bare "1" for
+        # whatever catches this (webapp/app.py shows this text to the user).
+        raise SystemExit(str(e)) from e
 
     district_frames, tehsil_frames, uc_frames = [], [], []
 

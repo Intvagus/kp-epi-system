@@ -108,6 +108,25 @@ def _safe_upload_name(filename: str) -> str:
     return name
 
 
+def _log_unexpected_error(job_id: str, label: str, is_file: bool = True) -> str:
+    """Prints the full traceback to the server log (visible in Render's Logs
+    tab, searchable by job_id) and returns a short, plain-language message
+    for the results page instead -- a raw Python traceback means nothing to
+    a non-technical user and reads as the app being badly broken, when it
+    usually just means the file's format doesn't match what's expected.
+    `is_file=False` is for the dashboard/bulletin build steps, which aren't
+    a specific uploaded file and need slightly different wording."""
+    print(f"\n[job {job_id}] UNEXPECTED FAILURE in {label}:", file=sys.stderr)
+    traceback.print_exc()
+    subject = f"your {label} file" if is_file else f"the {label}"
+    return (
+        f"Problem processing {subject}: something unexpected went wrong. "
+        f"This usually means a file's layout doesn't match what's expected -- please check your "
+        f"uploads against the templates for each file type. If it still doesn't work, contact "
+        f"support and mention reference {job_id[:8]}."
+    )
+
+
 def _save_uploads(files, dest_dir: Path):
     dest_dir.mkdir(parents=True, exist_ok=True)
     saved = []
@@ -179,7 +198,7 @@ def generate():
         elif result.workbook_type == "admin_activities":
             admin_activities_saved.append(name)
         else:
-            manifest["errors"].append(f"{name}: {result.message}")
+            manifest["errors"].append(f"Couldn't recognize “{name}”: {result.message}")
 
     key_messages_path = None
     key_messages_text = (request.form.get("key_messages") or "").strip()
@@ -195,9 +214,9 @@ def generate():
         try:
             run_coverage_pipeline(raw_dir=paths["raw"], processed_dir=paths["processed"])
         except SystemExit as e:
-            manifest["errors"].append(f"Coverage pipeline: {e}")
+            manifest["errors"].append(f"Problem with your Coverage file: {e}")
         except Exception:
-            manifest["errors"].append("Coverage pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "Coverage"))
 
     vpd_summary = None
     if vpd_saved:
@@ -205,9 +224,9 @@ def generate():
             vpd_summary = run_vpd(raw_dir=paths["raw"], processed_dir=paths["processed"],
                                    key_messages_path=key_messages_path)
         except SystemExit as e:
-            manifest["errors"].append(f"VPD pipeline: {e}")
+            manifest["errors"].append(f"Problem with your VPD surveillance file: {e}")
         except Exception:
-            manifest["errors"].append("VPD pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "VPD surveillance"))
 
     # RCA and Supervisory Checklist are independent of each other too -- an
     # RCA-only or Supervisory-only upload still builds a Monitoring tab, and
@@ -216,29 +235,35 @@ def generate():
         try:
             run_monitoring(raw_dir=paths["raw"], processed_dir=paths["processed"])
         except SystemExit as e:
-            manifest["errors"].append(f"Monitoring pipeline: {e}")
+            manifest["errors"].append(f"Problem with your Monitoring (RCA/Supervisory) file: {e}")
         except Exception:
-            manifest["errors"].append("Monitoring pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "Monitoring (RCA/Supervisory)"))
 
     # Independent of every other pipeline -- an Indicator Sheet upload with
     # no line list (or vice versa) still works.
     if indicator_sheet_saved:
         try:
             run_indicator_sheet(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except SystemExit as e:
+            manifest["errors"].append(f"Problem with your Measles Indicator Sheet file: {e}")
         except Exception:
-            manifest["errors"].append("Indicator Sheet pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "Measles Indicator Sheet"))
 
     if who_activities_saved:
         try:
             run_who_activities(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except SystemExit as e:
+            manifest["errors"].append(f"Problem with your WHO Supported Activities file: {e}")
         except Exception:
-            manifest["errors"].append("WHO Supported Activities pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "WHO Supported Activities"))
 
     if admin_activities_saved:
         try:
             run_admin_activities(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except SystemExit as e:
+            manifest["errors"].append(f"Problem with your Admin Activities Checklist file: {e}")
         except Exception:
-            manifest["errors"].append("Admin Activities pipeline: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "Admin Activities Checklist"))
 
     # Always attempted, regardless of which pipelines ran or failed above --
     # build_dashboard degrades each tab independently (an "awaiting data"
@@ -248,9 +273,9 @@ def generate():
         build_dashboard(processed_dir=paths["processed"], output_path=paths["output"] / "dashboard.html")
         manifest["built"]["dashboard"] = "dashboard.html"
     except SystemExit as e:
-        manifest["errors"].append(f"Dashboard build: {e}")
+        manifest["errors"].append(f"Problem building the dashboard: {e}")
     except Exception:
-        manifest["errors"].append("Dashboard build: unexpected failure -- " + traceback.format_exc(limit=2))
+        manifest["errors"].append(_log_unexpected_error(job_id, "dashboard build", is_file=False))
 
     if vpd_saved and vpd_summary is not None:
         try:
@@ -260,9 +285,9 @@ def generate():
             manifest["built"]["bulletin_xlsx"] = f"Bulletin_Week_{week}_{year}_annex.xlsx"
             manifest["built"]["bulletin_pptx"] = f"Bulletin_Week_{week}_{year}.pptx"
         except SystemExit as e:
-            manifest["errors"].append(f"Bulletin build: {e}")
+            manifest["errors"].append(f"Problem building the bulletin: {e}")
         except Exception:
-            manifest["errors"].append("Bulletin build: unexpected failure -- " + traceback.format_exc(limit=2))
+            manifest["errors"].append(_log_unexpected_error(job_id, "bulletin build", is_file=False))
     elif coverage_saved and not vpd_saved:
         manifest["errors"].append(
             "No VPD file was uploaded, so no bulletin was generated (the bulletin is VPD-only). "
@@ -279,7 +304,7 @@ def generate():
         if excel_path is not None:
             manifest["built"]["data_export_xlsx"] = excel_path.name
     except Exception:
-        manifest["errors"].append("Data export (Excel): unexpected failure -- " + traceback.format_exc(limit=2))
+        manifest["errors"].append(_log_unexpected_error(job_id, "data export (Excel)", is_file=False))
 
     paths["manifest"].write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return redirect(url_for("job_results", job_id=job_id))

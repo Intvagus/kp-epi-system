@@ -832,6 +832,86 @@
   Between this and the two fixes above it, every Coverage sheet-naming
   variant actually seen in production so far is now handled by one shared
   normalization path rather than three separate hardcoded assumptions.
+- **Non-technical-user-facing error clarity pass, plus an Excel template
+  pack** (done): the user pointed out that whoever actually uses this
+  dashboard day-to-day is not technical, and asked for two things: (1) a
+  template Excel file for each upload type they can hand out so people's
+  real files match the expected format from the start, and (2) that any
+  genuine data-format problem show up in the app as a clear, plain-language
+  explanation, never a confusing technical error.
+  1. **Two real, previously-unnoticed bugs found while building the error-
+     clarity fix, both confirmed live via the actual Flask route, not just
+     read in the code**:
+     - `webapp/templates/results.html`'s "What we found in your upload"
+       badge only had explicit branches for `"coverage"`/`"vpd"` -- every
+       other correctly-detected type (`rca`, `supervisory`,
+       `indicator_sheet`, `who_activities`, `admin_activities`) fell into
+       the catch-all red "not recognized" branch even though detection and
+       the pipeline had both succeeded -- a leftover from before those 5
+       domains existed, never updated. A user uploading, say, an Admin
+       Activities Checklist would see it marked "not recognized" on the
+       results page while the dashboard quietly worked fine, which reads
+       as exactly the kind of confusing-to-non-technical-users failure this
+       whole round was about fixing. Fixed by adding the missing branches.
+     - `webapp/app.py` embedded a raw Python traceback
+       (`traceback.format_exc(limit=2)`) directly into the user-facing
+       Notices box on any *unexpected* (non-`SystemExit`) pipeline failure
+       -- confirmed live by forcing a bulletin build failure (this
+       sandbox's own pre-existing, unrelated Playwright/Chromium
+       limitation, not a real app bug) and watching a full stack trace
+       render on the results page. Fixed with a new
+       `_log_unexpected_error(job_id, label, is_file=...)` helper: prints
+       the full traceback to the server log only (`sys.stderr`, visible in
+       Render's Logs tab, searchable by the job ID), and returns a short,
+       plain-language message with a reference ID instead. Every
+       `SystemExit`-carrying message (the *expected*, already-descriptive
+       failure path -- e.g. "Sheet 'District ' not found...") is still
+       shown directly, now consistently prefixed "Problem with your `<X>`
+       file:" / "Problem processing the `<build step>`:" rather than the
+       old bare "`<X> pipeline:`" labels.
+  2. **`src/pipeline/run.py` fix**: `run()`'s own load-failure handler did
+     `raise SystemExit(1) from e`, discarding the real underlying message
+     (e.g. a specific missing-sheet error) and leaving only the bare string
+     `"1"` for whatever caught it -- this is the exact, literal cause of
+     the "Coverage pipeline: 1" message the user saw live on an earlier
+     round's screenshot, now fixed to `raise SystemExit(str(e)) from e`.
+     The other `sys.exit(1)` calls in `run.py`/`run_vpd.py`/
+     `src/bulletin/build.py` are all inside `if __name__ == "__main__":`
+     CLI-only blocks the webapp never reaches, so this was the one real
+     instance of the bug.
+  3. **Excel template pack**: one workbook per fillable upload type --
+     Coverage, VPD Surveillance, Measles Indicator Sheet, WHO Supported
+     Activities, Admin Activities Checklist (RCA/Supervisory Checklist are
+     deliberately excluded, since those are machine-exported directly from
+     the existing monitoring system, not something staff build by hand).
+     Column headers and sheet names pulled straight from the pipeline code
+     (`DISTRICT_RENAME`/`UC_COVERAGES_RENAME`/`UC_DIFFERENCE_RENAME`,
+     `COLUMNS`/`HEADER_ROW`/`DATA_START_ROW` for the Indicator Sheet, the
+     exact fixed-cell layout for the WHO Highlights Dashboard sheet, etc.),
+     never retyped from memory, with a per-workbook "Instructions" tab and
+     yellow-highlighted EXAMPLE rows (never real case/patient data -- a
+     deliberate choice over handing out the real sample files directly,
+     since those contain genuine health data; only real, already-public KP
+     district names are reused). Each of the 5 templates was verified
+     end-to-end against the live pipeline code before delivery -- not just
+     visual inspection -- including one real bug this caught in the build
+     process itself (an off-by-one blank row broke the Indicator Sheet
+     template's "Provincial Total" row detection, found and fixed by
+     actually running `load_indicator_sheet()` against the generated file).
+     A combined 5-file upload was also driven through the real
+     `/generate` Flask route to confirm all 5 pipelines, the dashboard
+     build, and the (correct) per-file "recognized" labels all work
+     together in one job.
+  4. 4 new tests in `tests/test_error_messages_and_detection_labels.py`
+     (unconditional -- small synthetic workbooks built inline, not gated
+     behind real sample files being present): the Admin Activities
+     "recognized" label fix, that an unexpected exception never leaks a
+     traceback into the response body, that the dashboard-build failure
+     case uses "the dashboard build" phrasing rather than the misleading
+     "your dashboard build file", and that `run()`'s `SystemExit` message
+     is never the bare string `"1"`. Full suite 43 passing (154 skipped --
+     other real-file-dependent tests not present in this environment, same
+     pre-existing convention as every other round), 0 new failures.
 
 ## Web app / hosting
 
