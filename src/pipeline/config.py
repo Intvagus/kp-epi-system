@@ -97,8 +97,21 @@ SHEET_NAMES = {
 # Coverage workbook.
 COMBINED_DISTRICT_TEHSIL_SHEET = "Dist & Teshil Summary"
 
-PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # mislabeled row in the District sheet
+PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # legacy mislabeled row in the District sheet
+PROVINCE_TOTAL_JUNK_LABEL = "\\N"  # some newer exports put the real total under this literal marker instead
 PROVINCE_TOTAL_NAME = "KP Province Total"
+
+# A District-sheet row carrying one of the two labels above is only treated as
+# the real province-wide total if its own target is at least this fraction of
+# the summed target of every OTHER district row -- a genuine province total is
+# roughly equal to that sum, while a real single small district is a tiny
+# fraction of it. Needed from 2026-10: a newer export started shipping real
+# "Tor Ghar" district data (a real KP district) under the exact label this
+# pipeline used to always treat, unconditionally, as the mislabeled province
+# total -- which silently swallowed the real district (excluded from every
+# district table/ranking/map) and replaced every province-wide KPI with that
+# tiny single district's own numbers. See CLAUDE.md.
+PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS = 0.5
 
 JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 
@@ -145,6 +158,17 @@ DISTRICT_TO_BOUNDARY = {
     "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
     "Peshawar": "Peshawar", "SW Mehsud Belt": "SW Mehsud Belt", "SW Wazir Belt": "SW Wazir Belt",
     "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
+    # "Tor Ghar" has a real boundary polygon in kp_districts.geojson (see
+    # CLAUDE.md -- 37 features total, this is the 37th) but was never added
+    # here, since every Coverage file received until 2026-10 mislabeled its
+    # province-total row "Tor Ghar" rather than shipping real data for it
+    # (clean.py's magnitude check now tells the two apart -- see
+    # PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS). Without this entry, a file with
+    # real Tor Ghar data made build_district_map() report it as unmapped,
+    # which made every antigen-wise district map on the dashboard silently
+    # disappear entirely (template.html's antigenMapsGridHtml bails out on
+    # any unmapped district) -- found from a real user-uploaded file.
+    "Tor Ghar": "Tor Ghar",
 }
 
 # --- VPD surveillance (domain 2) ---

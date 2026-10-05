@@ -63,8 +63,12 @@ def test_load_workbook_splits_combined_sheet_into_district_and_tehsil():
     wb = load_workbook(COMBINED_FILE)
     district_df, tehsil_df = wb["sheets"]["district"], wb["sheets"]["tehsil"]
 
-    # 36 real districts + 1 province-total row (mislabeled "Tor Ghar") + 1
-    # junk "\N" export row -- same shape as the old separate-sheet layout.
+    # 37 real districts (including a real "Tor Ghar" row -- this export no
+    # longer mislabels the province total that way, see
+    # test_clean_district_and_tehsil_run_without_error_on_combined_layout
+    # below) + 1 province-total row (labelled "\N" in this export, not
+    # "Tor Ghar") -- same row count as the old separate-sheet layout, just a
+    # different real/mislabeled split than that older convention.
     assert len(district_df) == 38
     assert len(tehsil_df) == 142
 
@@ -96,9 +100,41 @@ def test_clean_district_and_tehsil_run_without_error_on_combined_layout():
 
     assert len(district) == 38
     assert district["is_province_total"].sum() == 1
+    # The real province-total row in this export is labelled "\N", not
+    # "Tor Ghar" -- "Tor Ghar" here is real district data and must survive
+    # as its own row (see test_combined_layout_tor_ghar_kept_as_real_district
+    # below for the full regression test).
+    assert district.loc[district["is_province_total"], "district"].iloc[0] == "KP Province Total"
+    assert "Tor Ghar" in set(district["district"])
     assert len(tehsil) <= 142  # junk rows excluded
     assert "bcg_pct_reported" in district.columns
     assert "bcg_pct_reported" in tehsil.columns
+
+
+def test_combined_layout_tor_ghar_kept_as_real_district():
+    """Regression test for the same 2026-10 Tor Ghar bug covered in
+    TestNoTrailingSpaceSheetNames, on this file's own district layout: this
+    export's real province-wide total is under the literal "\\N" label
+    (an export artifact, same convention as the junk Tehsil rows), while
+    "Tor Ghar" itself is real, plausible single-district data (target
+    ~3,990, the same order of magnitude as this province's other small
+    districts) that must be kept, not swallowed into "KP Province Total"."""
+    wb = load_workbook(COMBINED_FILE)
+    log = QualityLog()
+    district = clean_district(wb["sheets"]["district"], wb["period"].period_id, log)
+
+    tor_ghar = district[district["district"] == "Tor Ghar"]
+    assert len(tor_ghar) == 1
+    assert tor_ghar.iloc[0]["is_province_total"] == False
+    assert tor_ghar.iloc[0]["target_surviving_infants"] == 3990
+
+    province_total = district[district["is_province_total"]]
+    assert len(province_total) == 1
+    assert province_total.iloc[0]["target_surviving_infants"] == 774597
+
+    flag_types = {f["flag_type"] for f in log.flags}
+    assert "tor_ghar_kept_as_real_district" in flag_types
+    assert "province_total_mislabeled" in flag_types
 
 
 @pytest.mark.skipif(
@@ -139,5 +175,39 @@ class TestNoTrailingSpaceSheetNames:
         district = clean_district(wb["sheets"]["district"], period_id, log)
         tehsil = clean_tehsil(wb["sheets"]["tehsil"], period_id, log)
         assert len(district) == 37
-        assert district["is_province_total"].sum() == 1
+        # This file's "Tor Ghar" row is real, plausible single-district data
+        # (target ~4,212, in the same range as the province's other small
+        # districts), not the legacy mislabeled province-total row -- see
+        # test_tor_ghar_real_district_not_mislabeled_as_province_total below
+        # and CLAUDE.md's "found and fixed" note for the full story. This file
+        # has no province-total row at all (neither a real one nor a
+        # mislabeled one), so build_executive_summary()'s computed-fallback
+        # path (see test_coverage_summary_no_province_row.py) is what
+        # produces this period's province-wide KPIs.
+        assert district["is_province_total"].sum() == 0
         assert len(tehsil) > 0
+
+    def test_tor_ghar_real_district_not_mislabeled_as_province_total(self):
+        """Regression test for a real bug found 2026-10 from an actual
+        deployed-app upload: this exact file's "Tor Ghar" row was being
+        unconditionally treated as the legacy mislabeled province-total row
+        (the convention confirmed for every earlier file this project
+        received), which silently (a) excluded the real Tor Ghar district
+        from every district table/ranking/map, and (b) replaced every
+        province-wide KPI on the dashboard with Tor Ghar's own tiny numbers
+        (e.g. "Target Population: 3,990" instead of the real ~774,597)
+        -- confirmed against a user-generated report screenshot. Fixed with a
+        magnitude check (clean.py's PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS):
+        a candidate-labelled row is only treated as the province total if its
+        own target is close to the summed target of every other district."""
+        wb = load_workbook(NO_TRAILING_SPACE_FILE)
+        log = QualityLog()
+        district = clean_district(wb["sheets"]["district"], wb["period"].period_id, log)
+        tor_ghar = district[district["district"] == "Tor Ghar"]
+        assert len(tor_ghar) == 1
+        assert tor_ghar.iloc[0]["is_province_total"] == False
+        assert tor_ghar.iloc[0]["target_surviving_infants"] == 3990
+        assert "KP Province Total" not in set(district["district"])
+        flag_types = {f["flag_type"] for f in log.flags}
+        assert "tor_ghar_kept_as_real_district" in flag_types
+        assert "province_total_mislabeled" not in flag_types

@@ -986,6 +986,74 @@
      state found above.
   4. Full suite 47 passing (154 skipped, same pre-existing convention), 0
      new failures.
+- **Real Tor Ghar district data finally received -- found and fixed a serious
+  bug this surfaced, in production** (done): the user uploaded a real
+  "Jan_to_Aug_2026-4.xlsx" file on the live deployed app and asked why "Tor
+  Ghar" was missing from the generated PDF report. Investigated against the
+  user's own uploaded file and generated PDF directly (not assumed): the
+  District sheet's "Tor Ghar" row in this file has real, plausible
+  single-district values (target 4,212 / 3,990 BCG/surviving-infants --
+  the same order of magnitude as this province's other small districts,
+  e.g. Kurram Upper 5,079, Orakzai 4,981), nothing like the sum of the other
+  36 districts (813,738+) -- genuinely different from every earlier file
+  this project received, where "Tor Ghar" was always the source system's
+  own mislabeled province-wide total (see "Confirmed decisions" above). The
+  pipeline's `clean_district()` still unconditionally treated ANY row
+  literally labelled "Tor Ghar" as that mislabeled total, so it silently (a)
+  renamed this real district to "KP Province Total" and excluded it from
+  every per-district table/ranking/map, AND (b) replaced every province-wide
+  KPI on the dashboard with Tor Ghar's own tiny numbers alone -- confirmed
+  directly in the user's PDF: "Target Population: 3,990" and "FIC Coverage:
+  70.0% (2,812 of 3,990)" where the real province-wide figures should have
+  been ~774,597 / 78.5% (607,803 of 774,597). A second real file already in
+  this repo (`Jan to Aug 2026.xlsx`, the combined-sheet-layout file) turned
+  out to carry the SAME real "Tor Ghar" row, plus -- separately -- this
+  export's actual province-wide total under a different, literal `\N` label
+  (the same junk-row marker already used for junk Tehsil rows, see
+  `JUNK_TEHSIL_DISTRICT_MARKERS`), confirmed by its value (774,597) being an
+  exact match to the real sum of all 37 districts. Fixed with a magnitude
+  check, not a label change: `clean_district()` now only treats a row
+  labelled "Tor Ghar" or "\N" as the province total if its own target is at
+  least half the summed target of every OTHER district row (
+  `PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS` in config.py) -- a real province total
+  is roughly equal to that sum, a real single small district is a tiny
+  fraction of it. A "Tor Ghar"-labelled row that fails this check is kept as
+  real district data, not renamed/excluded, and flagged
+  (`tor_ghar_kept_as_real_district`) so the distinction is visible in the
+  data-quality report; a "\N"-labelled row that fails it is dropped as junk
+  (same treatment as junk Tehsil rows, since "\N" is never a real district
+  name), not kept as a fake "\N" district. Verified this doesn't change
+  behaviour for any file with a real `is_province_total` row, and a file
+  with neither (the user's actual "-4" upload) correctly falls through to
+  the existing `_computed_province_row()` fallback (see above), which
+  produced province-wide KPIs (774,597 target, 78.5% FIC) that exactly match
+  the real "\N" total found independently in the sibling file -- a strong
+  cross-check that the fix is correct, not just non-crashing.
+  **A second, independent real bug found while verifying this fix in the
+  actual browser, not just the data**: once Tor Ghar was correctly kept as
+  real data, `build_district_map()` reported it as "unmapped" (no entry in
+  `config.py`'s `DISTRICT_TO_BOUNDARY`, which only ever had the 36 districts
+  that previously had real data -- Tor Ghar's own boundary polygon has
+  always existed in `kp_districts.geojson`, 37 features, per the original Part
+  2 session notes above, it simply never needed a `DISTRICT_TO_BOUNDARY`
+  entry until now), which made `template.html`'s `antigenMapsGridHtml()`
+  silently return an empty string -- the ENTIRE "Antigen-wise District
+  Coverage Maps" section vanished from the dashboard, for every antigen, not
+  just a missing Tor Ghar shape. Fixed by adding the one missing
+  `"Tor Ghar": "Tor Ghar"` entry. Also made the map section's own descriptive
+  text ("Each of KP's N districts...") read the real mapped-district count
+  instead of a hardcoded "36", so it stays accurate for files with or
+  without real Tor Ghar data. Verified end-to-end in the actual browser
+  (Playwright, not just reading the code) against both real files: zero
+  console errors on all 6 tabs, the maps section renders all 37 districts
+  including Tor Ghar, and the Executive Overview's headline numbers
+  (774,597 target, 78.5%/78.0% FIC across the two files) are now the true
+  province-wide figures, not Tor Ghar's own. 3 new/updated tests in
+  `tests/test_combined_district_tehsil.py` (one correcting a pre-existing
+  test that had encoded the old buggy assumption for the user's exact file,
+  two new regression tests pinning the magnitude-check behaviour on both
+  real files). 49 passing (154 skipped, same pre-existing convention), 0
+  new failures.
 
 ## Web app / hosting
 
