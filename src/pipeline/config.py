@@ -97,8 +97,21 @@ SHEET_NAMES = {
 # Coverage workbook.
 COMBINED_DISTRICT_TEHSIL_SHEET = "Dist & Teshil Summary"
 
-PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # mislabeled row in the District sheet
+PROVINCE_TOTAL_DISTRICT_LABEL = "Tor Ghar"  # legacy mislabeled row in the District sheet
+PROVINCE_TOTAL_JUNK_LABEL = "\\N"  # some newer exports put the real total under this literal marker instead
 PROVINCE_TOTAL_NAME = "KP Province Total"
+
+# A District-sheet row carrying one of the two labels above is only treated as
+# the real province-wide total if its own target is at least this fraction of
+# the summed target of every OTHER district row -- a genuine province total is
+# roughly equal to that sum, while a real single small district is a tiny
+# fraction of it. Needed from 2026-10: a newer export started shipping real
+# "Tor Ghar" district data (a real KP district) under the exact label this
+# pipeline used to always treat, unconditionally, as the mislabeled province
+# total -- which silently swallowed the real district (excluded from every
+# district table/ranking/map) and replaced every province-wide KPI with that
+# tiny single district's own numbers. See CLAUDE.md.
+PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS = 0.5
 
 JUNK_TEHSIL_DISTRICT_MARKERS = {None, "\\N"}
 
@@ -145,6 +158,17 @@ DISTRICT_TO_BOUNDARY = {
     "North Waziristan": "North Waziristan", "Nowshera": "Nowshera", "Orakzai": "Orakzai",
     "Peshawar": "Peshawar", "SW Mehsud Belt": "SW Mehsud Belt", "SW Wazir Belt": "SW Wazir Belt",
     "Shangla": "Shangla", "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank",
+    # "Tor Ghar" has a real boundary polygon in kp_districts.geojson (see
+    # CLAUDE.md -- 37 features total, this is the 37th) but was never added
+    # here, since every Coverage file received until 2026-10 mislabeled its
+    # province-total row "Tor Ghar" rather than shipping real data for it
+    # (clean.py's magnitude check now tells the two apart -- see
+    # PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS). Without this entry, a file with
+    # real Tor Ghar data made build_district_map() report it as unmapped,
+    # which made every antigen-wise district map on the dashboard silently
+    # disappear entirely (template.html's antigenMapsGridHtml bails out on
+    # any unmapped district) -- found from a real user-uploaded file.
+    "Tor Ghar": "Tor Ghar",
 }
 
 # --- VPD surveillance (domain 2) ---
@@ -158,7 +182,23 @@ VPD_SHEET_NAMES = {
     "nnt": "NNT_LineList",
     "pertussis": "Pertusis line-list",
 }
-VPD_HEADER_ROW = 2  # 1-indexed; row 1 is a merged title, data starts row 3
+# A newer "Master Sheet" export (2026-10, combines VPD line lists with a
+# Measles Indicator Sheet in one workbook -- see indicator_sheet_vpd.py) uses
+# different sheet names entirely, not just whitespace/case drift that
+# resolve_sheet_name's normalization already bridges -- each disease lists
+# every real sheet-name variant seen so far, tried in order (canonical name
+# first).
+VPD_SHEET_NAME_ALIASES = {
+    "msl": ["MSL LINE-LIST", "Measles linelist"],
+    "diphtheria": ["DIPHTHERIA LINE-LIST ", "Diphtheria line list"],
+    "nnt": ["NNT_LineList", "NT linelist"],
+    "pertussis": ["Pertusis line-list", "Pertussis linelist"],
+}
+VPD_HEADER_ROW = 2  # 1-indexed; legacy convention: row 1 is a merged title, data starts row 3.
+# A newer export has no merged title row at all -- real headers sit on row 1,
+# data from row 2. load_vpd.py detects which applies per sheet rather than
+# assuming the legacy row number always holds.
+VPD_HEADER_ROW_CANDIDATES = [2, 1]
 
 AGE_BUCKETS_MONTHS = [
     (0, 8, "0-8m"),      # not yet due for MCV1
@@ -188,6 +228,12 @@ DOSE_STATUS_UNKNOWN = "Unknown"
 DOSE_STATUS_MAX_PLAUSIBLE = 4  # a value above this (e.g. the '111' seen in the Diphtheria sheet) is a data error, not a real dose count
 
 _VPD_WEEK_RANGE_RE = re.compile(r"week\s+(\d+)\s*-\s*(\d+)\s*,\s*(\d{4})", re.I)
+# A newer export (2026-10) names the file with a single week number instead
+# of a range, and the year before the week ("Master_sheet_VPD_line_list-
+# 2026_Wk_37.xlsx") rather than after it -- year and week are found
+# independently so either ordering works, rather than one fixed pattern.
+_VPD_SINGLE_WEEK_RE = re.compile(r"wk[_\s]*(\d+)", re.I)
+_VPD_YEAR_RE = re.compile(r"(20\d{2})")
 
 
 # --- Monitoring / supervisory visits (domain 3) ---
@@ -222,6 +268,14 @@ def infer_vpd_period(filename: str) -> Period:
         start_week, end_week, year = m.groups()
         return Period(f"{year}-W{start_week}-{end_week}", "cumulative_weekly",
                        f"Weeks {start_week}-{end_week}, {year}")
+    week_m = _VPD_SINGLE_WEEK_RE.search(filename)
+    year_m = _VPD_YEAR_RE.search(filename)
+    if week_m and year_m:
+        # The filename only states one week number, not the true start of
+        # the range it covers -- labelled as "Week <N>" (not a fabricated
+        # "Weeks 1-N"), since the data itself may start at any week.
+        week, year = week_m.group(1), year_m.group(1)
+        return Period(f"{year}-W{week}", "cumulative_weekly", f"Week {week}, {year}")
     raise ValueError(
         f"Cannot infer VPD reporting week range from filename {filename!r}. "
         f"Expected a 'Week <start>-<end>,<year>' pattern in the filename."

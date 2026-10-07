@@ -16,6 +16,8 @@ from .config import (
     JUNK_TEHSIL_DISTRICT_MARKERS,
     OUTLIER_PCT_THRESHOLD,
     PROVINCE_TOTAL_DISTRICT_LABEL,
+    PROVINCE_TOTAL_JUNK_LABEL,
+    PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS,
     PROVINCE_TOTAL_NAME,
 )
 
@@ -161,11 +163,50 @@ def clean_district(raw_df: pd.DataFrame, period_id: str, log: QualityLog):
             log.flag(period_id, "district", entity, "zero_target_div0", detail=col)
         df[col] = df[col].where(~is_err, None)
 
-    df["is_province_total"] = df["district"] == PROVINCE_TOTAL_DISTRICT_LABEL
-    if df["is_province_total"].any():
-        log.flag(period_id, "district", PROVINCE_TOTAL_DISTRICT_LABEL, "province_total_mislabeled",
-                  detail="Row labelled 'Tor Ghar' is actually the KP province total; real Tor Ghar "
-                         "district data is missing from this file.")
+    # A row literally labelled "Tor Ghar" or "\N" is only treated as the real
+    # province-wide total if its own target looks like a sum of every other
+    # district's target. Older exports always mislabeled the true province
+    # total "Tor Ghar"; a newer export instead ships real small-district data
+    # under that same label, with the true total (when present at all) under
+    # "\N" -- so the label alone can no longer be trusted, only magnitude can.
+    candidate_labels = {PROVINCE_TOTAL_DISTRICT_LABEL, PROVINCE_TOTAL_JUNK_LABEL}
+    is_candidate = df["district"].isin(candidate_labels)
+    df["is_province_total"] = False
+    if is_candidate.any():
+        others_target_sum = df.loc[~is_candidate, "target_surviving_infants"].sum(skipna=True)
+        for idx in df.index[is_candidate]:
+            label = df.loc[idx, "district"]
+            value = df.loc[idx, "target_surviving_infants"]
+            looks_like_total = (
+                others_target_sum > 0 and pd.notna(value)
+                and value >= others_target_sum * PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS
+            )
+            if looks_like_total:
+                df.loc[idx, "is_province_total"] = True
+                log.flag(period_id, "district", label, "province_total_mislabeled",
+                          detail=f"Row labelled '{label}' is actually the KP province total "
+                                 "(its target is close to the summed target of every other "
+                                 "district row), not a real district.")
+            elif label == PROVINCE_TOTAL_JUNK_LABEL:
+                # "\N" is never a real district name (same export artifact as
+                # the junk Tehsil rows -- see JUNK_TEHSIL_DISTRICT_MARKERS). If
+                # it doesn't look like the province total either, it's junk,
+                # not real district data, so it's dropped (same treatment as
+                # the junk Tehsil rows), not shown as a fake "\N" district.
+                log.flag(period_id, "district", label, "junk_district_row",
+                          detail="District row labelled '\\N' does not look like the province "
+                                 "total and is not a real district name; dropped.")
+                df = df.drop(idx)
+            else:
+                # A real, small single district genuinely using this exact
+                # label (e.g. the real KP district "Tor Ghar") -- kept as real
+                # data, not renamed or excluded from district tables/rankings/
+                # maps, but flagged so the distinction is visible in the
+                # data-quality report rather than happening silently.
+                log.flag(period_id, "district", label, "tor_ghar_kept_as_real_district",
+                          detail=f"Row labelled '{label}' has a target far smaller than the "
+                                 "summed target of every other district, consistent with a real "
+                                 "single district rather than the province total; kept as-is.")
     df.loc[df["is_province_total"], "district"] = PROVINCE_TOTAL_NAME
 
     df = _crosscheck(df, period_id, "district", log)

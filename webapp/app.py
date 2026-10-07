@@ -38,6 +38,7 @@ from src.pipeline.admin_activities import run_admin_activities
 from src.pipeline.detect import detect_monitoring_file, detect_workbook_type
 from src.pipeline.export_excel import build_processed_excel
 from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
+from src.pipeline.load_vpd import has_vpd_sheets
 from src.pipeline.who_activities import run_who_activities
 from src.pipeline.run import run as run_coverage_pipeline
 from src.pipeline.run_monitoring import run_monitoring
@@ -199,6 +200,17 @@ def generate():
             admin_activities_saved.append(name)
         else:
             manifest["errors"].append(f"Couldn't recognize “{name}”: {result.message}")
+
+        # A workbook can genuinely carry more than one domain's data at once
+        # -- e.g. a combined "Master Sheet" export that bundles VPD line
+        # lists together with a Measles Indicator Sheet in one file.
+        # detect_workbook_type only returns one label (used for the results-
+        # page badge above), so VPD content is checked independently here,
+        # regardless of what the file's primary type was, the same way
+        # run_who_activities()/run_admin_activities() already re-scan for
+        # their own content rather than trusting one label exclusively.
+        if result.workbook_type != "vpd" and name.lower().endswith(".xlsx") and has_vpd_sheets(path):
+            vpd_saved.append(name)
 
     key_messages_path = None
     key_messages_text = (request.form.get("key_messages") or "").strip()

@@ -986,6 +986,195 @@
      state found above.
   4. Full suite 47 passing (154 skipped, same pre-existing convention), 0
      new failures.
+- **Real Tor Ghar district data finally received -- found and fixed a serious
+  bug this surfaced, in production** (done): the user uploaded a real
+  "Jan_to_Aug_2026-4.xlsx" file on the live deployed app and asked why "Tor
+  Ghar" was missing from the generated PDF report. Investigated against the
+  user's own uploaded file and generated PDF directly (not assumed): the
+  District sheet's "Tor Ghar" row in this file has real, plausible
+  single-district values (target 4,212 / 3,990 BCG/surviving-infants --
+  the same order of magnitude as this province's other small districts,
+  e.g. Kurram Upper 5,079, Orakzai 4,981), nothing like the sum of the other
+  36 districts (813,738+) -- genuinely different from every earlier file
+  this project received, where "Tor Ghar" was always the source system's
+  own mislabeled province-wide total (see "Confirmed decisions" above). The
+  pipeline's `clean_district()` still unconditionally treated ANY row
+  literally labelled "Tor Ghar" as that mislabeled total, so it silently (a)
+  renamed this real district to "KP Province Total" and excluded it from
+  every per-district table/ranking/map, AND (b) replaced every province-wide
+  KPI on the dashboard with Tor Ghar's own tiny numbers alone -- confirmed
+  directly in the user's PDF: "Target Population: 3,990" and "FIC Coverage:
+  70.0% (2,812 of 3,990)" where the real province-wide figures should have
+  been ~774,597 / 78.5% (607,803 of 774,597). A second real file already in
+  this repo (`Jan to Aug 2026.xlsx`, the combined-sheet-layout file) turned
+  out to carry the SAME real "Tor Ghar" row, plus -- separately -- this
+  export's actual province-wide total under a different, literal `\N` label
+  (the same junk-row marker already used for junk Tehsil rows, see
+  `JUNK_TEHSIL_DISTRICT_MARKERS`), confirmed by its value (774,597) being an
+  exact match to the real sum of all 37 districts. Fixed with a magnitude
+  check, not a label change: `clean_district()` now only treats a row
+  labelled "Tor Ghar" or "\N" as the province total if its own target is at
+  least half the summed target of every OTHER district row (
+  `PROVINCE_TOTAL_MIN_SHARE_OF_OTHERS` in config.py) -- a real province total
+  is roughly equal to that sum, a real single small district is a tiny
+  fraction of it. A "Tor Ghar"-labelled row that fails this check is kept as
+  real district data, not renamed/excluded, and flagged
+  (`tor_ghar_kept_as_real_district`) so the distinction is visible in the
+  data-quality report; a "\N"-labelled row that fails it is dropped as junk
+  (same treatment as junk Tehsil rows, since "\N" is never a real district
+  name), not kept as a fake "\N" district. Verified this doesn't change
+  behaviour for any file with a real `is_province_total` row, and a file
+  with neither (the user's actual "-4" upload) correctly falls through to
+  the existing `_computed_province_row()` fallback (see above), which
+  produced province-wide KPIs (774,597 target, 78.5% FIC) that exactly match
+  the real "\N" total found independently in the sibling file -- a strong
+  cross-check that the fix is correct, not just non-crashing.
+  **A second, independent real bug found while verifying this fix in the
+  actual browser, not just the data**: once Tor Ghar was correctly kept as
+  real data, `build_district_map()` reported it as "unmapped" (no entry in
+  `config.py`'s `DISTRICT_TO_BOUNDARY`, which only ever had the 36 districts
+  that previously had real data -- Tor Ghar's own boundary polygon has
+  always existed in `kp_districts.geojson`, 37 features, per the original Part
+  2 session notes above, it simply never needed a `DISTRICT_TO_BOUNDARY`
+  entry until now), which made `template.html`'s `antigenMapsGridHtml()`
+  silently return an empty string -- the ENTIRE "Antigen-wise District
+  Coverage Maps" section vanished from the dashboard, for every antigen, not
+  just a missing Tor Ghar shape. Fixed by adding the one missing
+  `"Tor Ghar": "Tor Ghar"` entry. Also made the map section's own descriptive
+  text ("Each of KP's N districts...") read the real mapped-district count
+  instead of a hardcoded "36", so it stays accurate for files with or
+  without real Tor Ghar data. Verified end-to-end in the actual browser
+  (Playwright, not just reading the code) against both real files: zero
+  console errors on all 6 tabs, the maps section renders all 37 districts
+  including Tor Ghar, and the Executive Overview's headline numbers
+  (774,597 target, 78.5%/78.0% FIC across the two files) are now the true
+  province-wide figures, not Tor Ghar's own. 3 new/updated tests in
+  `tests/test_combined_district_tehsil.py` (one correcting a pre-existing
+  test that had encoded the old buggy assumption for the user's exact file,
+  two new regression tests pinning the magnitude-check behaviour on both
+  real files). 49 passing (154 skipped, same pre-existing convention), 0
+  new failures.
+- **A genuinely new "Master Sheet" export variant, found from a live user
+  upload + results-page screenshot, fully supported** (done): the user
+  uploaded "Master_sheet_VPD_line_list-2026_Wk_37.xlsx" and got "Problem
+  processing your Measles Indicator Sheet file: something unexpected went
+  wrong" with no dashboard produced. Investigated by opening the real file
+  directly (openpyxl), not guessed at. It's not just a VPD line list or an
+  Indicator Sheet -- it's a genuinely new combined workbook shape, 6 sheets:
+  `Measles Indicator Sheet`, `Measles linelist`, `Diphtheria line list`,
+  `Pertussis linelist`, `NT linelist`, `Duplicate`, bundling what every
+  earlier file always shipped as separate uploads. Found and fixed 7
+  independent format differences, asked the user to confirm scope
+  (`AskUserQuestion`, twice) before building rather than assuming:
+  1. **Indicator Sheet data lives on a sheet named "Measles Indicator
+     Sheet"**, not a bare year like "2026" --
+     `indicator_sheet_vpd.py::_select_year_sheet` only ever looked for
+     year-named sheets. Fixed: still prefers a real year-named sheet first
+     (zero behaviour change for the original convention), falls back to any
+     sheet carrying the Indicator Sheet's own A1 title marker, pulling the
+     year out of the title text via regex.
+  2. **One extra blank row after the title** shifts the header (and
+     everything below it) down one row from the historical row-2
+     convention. Fixed with `_find_header_row()`, which locates the real
+     header by content (column A == "District", column B mentions
+     "population") instead of assuming a fixed row number; `DATA_START_ROW`
+     is now computed as `header_row + 2`, not hardcoded.
+  3. **Provincial-total row labelled "Provincial"**, not "Provincial
+     Total" -- matched via a new `PROVINCIAL_TOTAL_LABELS` set
+     (case/whitespace-insensitive), not one exact string.
+  4. **New district spelling "KP Kohistan"** -- confirmed with the user
+     (`AskUserQuestion`) to mean "Kolai Palas Kohistan"; added to
+     `DISTRICT_NAME_CANONICAL`. Separately, this export already spells
+     several other districts this project's canonical way directly (e.g.
+     "Tor Ghar", "Bajaur") instead of the older misspellings
+     `DISTRICT_NAME_CANONICAL`'s keys were built from --
+     `build_measles_incidence_map()` now also accepts an already-canonical
+     spelling as itself, not only a known raw variant, so these 6 districts
+     aren't wrongly reported as unmapped.
+  5. **VPD line-list sheets use different names entirely**
+     ("Measles linelist" vs "MSL LINE-LIST", "NT linelist" vs
+     "NNT_LineList", etc.) -- not whitespace/case drift `resolve_sheet_name`
+     already bridges, so a new `VPD_SHEET_NAME_ALIASES` dict in config.py
+     lists every real sheet-name variant per disease, tried in order.
+  6. **No merged title row** on these sheets -- real headers sit on row 1,
+     data from row 2, instead of the original title-row-1/header-row-2
+     convention. `load_vpd.py::_detect_header_row()` locates the real
+     header row per sheet by content (first cell reads "Sr #"/"S #"),
+     rather than assuming the legacy row number.
+  7. **Column-count-compatible but content-different Pertussis sheet**: a
+     real "Final Classification" column now exists at the exact position
+     the original `PERTUSSIS_COLUMNS_HEAD` reserved for "D/report sent to
+     District" -- same column COUNT as before, so the existing
+     at-least-N-columns check didn't catch it, and a real value like
+     "Laboratory Confirmed Pertussis" was silently being coerced to a date
+     (NaT) by `_coerce_dates`. The Pertussis line list previously had no
+     classification field at all (see the second refinement round above) --
+     this is new data, not a renamed existing field. Fixed in
+     `clean_vpd.py::clean_pertussis` by checking the RAW header text at that
+     position (before the positional rename discards it): if it says "final
+     classification", the column becomes `final_classification_raw` and is
+     excluded from date coercion; otherwise behaviour is byte-for-byte
+     unchanged from before (verified with a dedicated regression test).
+  Two more real issues found while verifying end-to-end against the actual
+  file, not assumed from reading the code:
+  - **Diphtheria sheet has a trailing "Compiled by / Name / ... / Compiled
+    Date" sign-off row**, not a real case -- confirmed by direct
+    inspection (it's the literal last row). `clean_diphtheria` now drops
+    any row whose `sr_no` isn't numeric (the same signal Pertussis's
+    existing merged-sub-header-artifact check already used), flagged as
+    `sheet_footer_row_dropped`, not silently included as a case with a
+    blank district.
+  - **`weekly_case_counts()` crashed** (`TypeError: '<' not supported
+    between instances of 'str' and 'int'`) sorting a mixed-type `epi_week`
+    column -- directly caused by the footer row above (its `epi_week` cell
+    held signature text, not a number); resolved as a side effect of
+    dropping that row, not a separate fix.
+  - **Filename carries a single week number, year before week**
+    ("2026_Wk_37", not "Week 1-32,2026") -- `infer_vpd_period`'s regex only
+    matched a `start-end` range. Added a fallback pattern that finds a year
+    and a "Wk N" number independently (so either ordering works), labelled
+    honestly as "Week N, `<year>`" (not a fabricated "Weeks 1-N") since the
+    filename alone doesn't state the true range start.
+  **Architectural fix, not just a parsing fix**: this file is genuinely two
+  domains at once (an Indicator Sheet AND VPD line lists in one workbook),
+  but `detect.py::detect_workbook_type()` only ever returns one label per
+  file (used for the results-page "what we found" badge). Fixed by making
+  `load_vpd.py::find_vpd_files()` do its own independent content scan
+  (`has_vpd_sheets()`, checking for a resolvable sheet for all 4 diseases)
+  instead of gating on that one label, the same "each domain re-scans
+  independently" pattern already established for WHO/Admin Activities in
+  the full-recheck round above; `webapp/app.py`'s upload-classification loop
+  now also runs this independent VPD check on every `.xlsx` regardless of
+  its primary detected type, so both pipelines fire for a file like this
+  one. The "Duplicate" sheet (cross-province/flagged-duplicate records --
+  confirmed by inspection, e.g. a Punjab-province row) is deliberately never
+  read by any alias, so it can't silently inflate case counts.
+  Also fixed: `run_indicator_sheet()` never wrapped `load_indicator_sheet`'s
+  `ValueError` as `SystemExit`, the one domain missed by the earlier
+  error-clarity-pass round -- a genuine format problem in an Indicator Sheet
+  file showed the generic "something unexpected went wrong" instead of the
+  specific message, which is exactly what happened to the user here. Fixed
+  to match `run.py`/`run_vpd.py`'s existing convention.
+  Verified end-to-end against the real uploaded file throughout (never just
+  read-and-assumed): direct openpyxl/pandas inspection of every sheet to
+  find each format difference, `load_indicator_sheet()`/
+  `load_vpd_workbook()`/`clean_*()` run directly against the real file,
+  `run_vpd()` + `run_indicator_sheet()` run together end-to-end producing
+  real processed output (11,698 MSL / 231 Diphtheria / 73 Pertussis / 123
+  NNT case rows, 37-district Indicator Sheet), a full dashboard build with
+  zero fabricated data, and a real Flask `/generate` POST through the actual
+  test client replicating the user's exact upload -- dashboard produced
+  successfully (the only remaining notice is this sandbox's own
+  pre-existing, unrelated Chromium-not-installed limitation blocking the
+  bulletin PDF, not a real app bug). A Playwright sweep of the resulting
+  dashboard confirmed zero console errors across all 6 tabs and real MSL/
+  Diphtheria/Pertussis/NNT/Indicator-Sheet figures rendering correctly
+  side by side on the VPD Surveillance tab, per this project's established
+  "separate sources, never reconciled" design. 10 new unconditional tests in
+  `tests/test_master_sheet_export.py` (synthetic workbooks/dataframes, not
+  the real uploaded file, which contains real case-level health data and
+  was never committed to this repo). 59 passing (154 skipped, same
+  pre-existing convention), 0 new failures.
 
 ## Web app / hosting
 
