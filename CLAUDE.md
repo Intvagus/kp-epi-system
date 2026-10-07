@@ -1054,6 +1054,127 @@
   two new regression tests pinning the magnitude-check behaviour on both
   real files). 49 passing (154 skipped, same pre-existing convention), 0
   new failures.
+- **A genuinely new "Master Sheet" export variant, found from a live user
+  upload + results-page screenshot, fully supported** (done): the user
+  uploaded "Master_sheet_VPD_line_list-2026_Wk_37.xlsx" and got "Problem
+  processing your Measles Indicator Sheet file: something unexpected went
+  wrong" with no dashboard produced. Investigated by opening the real file
+  directly (openpyxl), not guessed at. It's not just a VPD line list or an
+  Indicator Sheet -- it's a genuinely new combined workbook shape, 6 sheets:
+  `Measles Indicator Sheet`, `Measles linelist`, `Diphtheria line list`,
+  `Pertussis linelist`, `NT linelist`, `Duplicate`, bundling what every
+  earlier file always shipped as separate uploads. Found and fixed 7
+  independent format differences, asked the user to confirm scope
+  (`AskUserQuestion`, twice) before building rather than assuming:
+  1. **Indicator Sheet data lives on a sheet named "Measles Indicator
+     Sheet"**, not a bare year like "2026" --
+     `indicator_sheet_vpd.py::_select_year_sheet` only ever looked for
+     year-named sheets. Fixed: still prefers a real year-named sheet first
+     (zero behaviour change for the original convention), falls back to any
+     sheet carrying the Indicator Sheet's own A1 title marker, pulling the
+     year out of the title text via regex.
+  2. **One extra blank row after the title** shifts the header (and
+     everything below it) down one row from the historical row-2
+     convention. Fixed with `_find_header_row()`, which locates the real
+     header by content (column A == "District", column B mentions
+     "population") instead of assuming a fixed row number; `DATA_START_ROW`
+     is now computed as `header_row + 2`, not hardcoded.
+  3. **Provincial-total row labelled "Provincial"**, not "Provincial
+     Total" -- matched via a new `PROVINCIAL_TOTAL_LABELS` set
+     (case/whitespace-insensitive), not one exact string.
+  4. **New district spelling "KP Kohistan"** -- confirmed with the user
+     (`AskUserQuestion`) to mean "Kolai Palas Kohistan"; added to
+     `DISTRICT_NAME_CANONICAL`. Separately, this export already spells
+     several other districts this project's canonical way directly (e.g.
+     "Tor Ghar", "Bajaur") instead of the older misspellings
+     `DISTRICT_NAME_CANONICAL`'s keys were built from --
+     `build_measles_incidence_map()` now also accepts an already-canonical
+     spelling as itself, not only a known raw variant, so these 6 districts
+     aren't wrongly reported as unmapped.
+  5. **VPD line-list sheets use different names entirely**
+     ("Measles linelist" vs "MSL LINE-LIST", "NT linelist" vs
+     "NNT_LineList", etc.) -- not whitespace/case drift `resolve_sheet_name`
+     already bridges, so a new `VPD_SHEET_NAME_ALIASES` dict in config.py
+     lists every real sheet-name variant per disease, tried in order.
+  6. **No merged title row** on these sheets -- real headers sit on row 1,
+     data from row 2, instead of the original title-row-1/header-row-2
+     convention. `load_vpd.py::_detect_header_row()` locates the real
+     header row per sheet by content (first cell reads "Sr #"/"S #"),
+     rather than assuming the legacy row number.
+  7. **Column-count-compatible but content-different Pertussis sheet**: a
+     real "Final Classification" column now exists at the exact position
+     the original `PERTUSSIS_COLUMNS_HEAD` reserved for "D/report sent to
+     District" -- same column COUNT as before, so the existing
+     at-least-N-columns check didn't catch it, and a real value like
+     "Laboratory Confirmed Pertussis" was silently being coerced to a date
+     (NaT) by `_coerce_dates`. The Pertussis line list previously had no
+     classification field at all (see the second refinement round above) --
+     this is new data, not a renamed existing field. Fixed in
+     `clean_vpd.py::clean_pertussis` by checking the RAW header text at that
+     position (before the positional rename discards it): if it says "final
+     classification", the column becomes `final_classification_raw` and is
+     excluded from date coercion; otherwise behaviour is byte-for-byte
+     unchanged from before (verified with a dedicated regression test).
+  Two more real issues found while verifying end-to-end against the actual
+  file, not assumed from reading the code:
+  - **Diphtheria sheet has a trailing "Compiled by / Name / ... / Compiled
+    Date" sign-off row**, not a real case -- confirmed by direct
+    inspection (it's the literal last row). `clean_diphtheria` now drops
+    any row whose `sr_no` isn't numeric (the same signal Pertussis's
+    existing merged-sub-header-artifact check already used), flagged as
+    `sheet_footer_row_dropped`, not silently included as a case with a
+    blank district.
+  - **`weekly_case_counts()` crashed** (`TypeError: '<' not supported
+    between instances of 'str' and 'int'`) sorting a mixed-type `epi_week`
+    column -- directly caused by the footer row above (its `epi_week` cell
+    held signature text, not a number); resolved as a side effect of
+    dropping that row, not a separate fix.
+  - **Filename carries a single week number, year before week**
+    ("2026_Wk_37", not "Week 1-32,2026") -- `infer_vpd_period`'s regex only
+    matched a `start-end` range. Added a fallback pattern that finds a year
+    and a "Wk N" number independently (so either ordering works), labelled
+    honestly as "Week N, `<year>`" (not a fabricated "Weeks 1-N") since the
+    filename alone doesn't state the true range start.
+  **Architectural fix, not just a parsing fix**: this file is genuinely two
+  domains at once (an Indicator Sheet AND VPD line lists in one workbook),
+  but `detect.py::detect_workbook_type()` only ever returns one label per
+  file (used for the results-page "what we found" badge). Fixed by making
+  `load_vpd.py::find_vpd_files()` do its own independent content scan
+  (`has_vpd_sheets()`, checking for a resolvable sheet for all 4 diseases)
+  instead of gating on that one label, the same "each domain re-scans
+  independently" pattern already established for WHO/Admin Activities in
+  the full-recheck round above; `webapp/app.py`'s upload-classification loop
+  now also runs this independent VPD check on every `.xlsx` regardless of
+  its primary detected type, so both pipelines fire for a file like this
+  one. The "Duplicate" sheet (cross-province/flagged-duplicate records --
+  confirmed by inspection, e.g. a Punjab-province row) is deliberately never
+  read by any alias, so it can't silently inflate case counts.
+  Also fixed: `run_indicator_sheet()` never wrapped `load_indicator_sheet`'s
+  `ValueError` as `SystemExit`, the one domain missed by the earlier
+  error-clarity-pass round -- a genuine format problem in an Indicator Sheet
+  file showed the generic "something unexpected went wrong" instead of the
+  specific message, which is exactly what happened to the user here. Fixed
+  to match `run.py`/`run_vpd.py`'s existing convention.
+  Verified end-to-end against the real uploaded file throughout (never just
+  read-and-assumed): direct openpyxl/pandas inspection of every sheet to
+  find each format difference, `load_indicator_sheet()`/
+  `load_vpd_workbook()`/`clean_*()` run directly against the real file,
+  `run_vpd()` + `run_indicator_sheet()` run together end-to-end producing
+  real processed output (11,698 MSL / 231 Diphtheria / 73 Pertussis / 123
+  NNT case rows, 37-district Indicator Sheet), a full dashboard build with
+  zero fabricated data, and a real Flask `/generate` POST through the actual
+  test client replicating the user's exact upload -- dashboard produced
+  successfully (the only remaining notice is this sandbox's own
+  pre-existing, unrelated Chromium-not-installed limitation blocking the
+  bulletin PDF, not a real app bug). A Playwright sweep of the resulting
+  dashboard confirmed zero console errors across all 6 tabs and real MSL/
+  Diphtheria/Pertussis/NNT/Indicator-Sheet figures rendering correctly
+  side by side on the VPD Surveillance tab, per this project's established
+  "separate sources, never reconciled" design. 10 new unconditional tests in
+  `tests/test_master_sheet_export.py` (synthetic workbooks/dataframes, not
+  the real uploaded file, which contains real case-level health data and
+  was never committed to this repo). 59 passing (154 skipped, same
+  pre-existing convention), 0 new failures.
 
 ## Web app / hosting
 

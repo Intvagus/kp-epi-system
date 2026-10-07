@@ -16,11 +16,13 @@ indicators) vs. B/C/D/E/G-K/M/O/R (raw counts) -- those 6 highlighted
 columns are the "key indicators" this module surfaces, never invented.
 """
 import json
+import re
 from pathlib import Path
 
 import openpyxl
 
 INDICATOR_SHEET_TITLE_MARKER = "indicator sheet"
+_YEAR_IN_TITLE_RE = re.compile(r"(20\d{2})")
 
 # This workbook spells district names differently from the Coverage/
 # Monitoring files (its own data-entry convention, confirmed by direct
@@ -47,6 +49,10 @@ DISTRICT_NAME_CANONICAL = {
     "Peshawar": "Peshawar", "Shangla": "Shangla",
     "South Wazirisan Upper": "SW Wazir Belt", "South Waziristan Lower": "SW Mehsud Belt",
     "Swabi": "Swabi", "Swat": "Swat", "Tank": "Tank", "Torghar": "Tor Ghar",
+    # "KP Kohistan" appears in a newer "Master Sheet" export (2026-10) in
+    # place of "Kolai Palas" -- confirmed with the user to be the same
+    # district under a different abbreviation, not a new entity.
+    "KP Kohistan": "Kolai Palas Kohistan",
 }
 
 # WHO-standard measles incidence bands (cases per million population,
@@ -82,9 +88,13 @@ COLUMNS = {
     "pct_sample_collected": 16, "pct_adequate_investigation": 17,
     "total_deaths": 18, "measles_related_deaths": 19,
 }
-HEADER_ROW = 2
-DATA_START_ROW = 4
+HEADER_ROW = 2  # historical default; _select_year_sheet now detects this per-sheet, see below
+DATA_START_ROW = 4  # historical default; load_indicator_sheet computes this from the detected header row instead
 PROVINCIAL_TOTAL_LABEL = "Provincial Total"
+# A newer "Master Sheet" export (2026-10) labels this row just "Provincial" --
+# matched case/whitespace-insensitively, same tolerance already used for
+# sheet-name drift elsewhere in this project (see sheet_utils.py).
+PROVINCIAL_TOTAL_LABELS = {"provincial total", "provincial"}
 
 # The 6 columns confirmed highlighted in the source (a distinct fill color
 # from every other column) -- the sheet author's own designation of which
@@ -120,19 +130,47 @@ def find_indicator_sheet_files(raw_dir: Path) -> list[Path]:
     return files
 
 
-def _select_year_sheet(wb) -> tuple[str, object]:
-    """Pick the most recent year-named sheet whose header row actually
-    matches the expected layout -- some older years in this workbook use a
-    different table shape entirely, so structural validation (not just the
-    sheet existing) decides which one is usable."""
+def _find_header_row(ws, max_scan_rows: int = 6) -> int | None:
+    """Locate the real header row (column A == 'District', column B mentions
+    'population') by scanning the first few rows, rather than assuming a
+    fixed row number -- a newer export (2026-10) has one extra blank row
+    after the title, shifting the header (and everything below it) down by
+    one from the historical row-2 convention."""
+    for row in range(1, max_scan_rows + 1):
+        district_cell = str(ws.cell(row=row, column=COLUMNS["district"]).value or "").strip().lower()
+        population_cell = str(ws.cell(row=row, column=COLUMNS["total_population"]).value or "").lower()
+        if district_cell == "district" and "population" in population_cell:
+            return row
+    return None
+
+
+def _select_year_sheet(wb) -> tuple[str, object, int]:
+    """Pick the Indicator Sheet data to read and the row its real header
+    actually starts on. Prefers a sheet literally named a bare year (the
+    original convention, most recent year first); falls back to any sheet
+    carrying the Indicator Sheet's own A1 title marker (a newer export names
+    the sheet descriptively instead, e.g. "Measles Indicator Sheet", with the
+    year only inside the title text) -- structural validation (the header
+    row must actually be found) decides usability in both cases, not just
+    the sheet/name existing."""
     year_sheets = sorted((n for n in wb.sheetnames if n.strip().isdigit()), reverse=True)
     for name in year_sheets:
+        header_row = _find_header_row(wb[name])
+        if header_row is not None:
+            return name, wb[name], header_row
+
+    for name in wb.sheetnames:
         ws = wb[name]
-        if (str(ws.cell(row=HEADER_ROW, column=COLUMNS["district"]).value or "").strip().lower() == "district"
-                and "population" in str(ws.cell(row=HEADER_ROW, column=COLUMNS["total_population"]).value or "").lower()):
-            return name, ws
+        title = str(ws.cell(row=1, column=1).value or "").strip().lower()
+        if INDICATOR_SHEET_TITLE_MARKER in title:
+            header_row = _find_header_row(ws)
+            if header_row is not None:
+                year_match = _YEAR_IN_TITLE_RE.search(title)
+                year = year_match.group(1) if year_match else name
+                return year, ws, header_row
+
     raise ValueError(
-        "No year sheet in the Indicator workbook has the expected 'District' / "
+        "No sheet in the Indicator workbook has the expected 'District' / "
         "'Total Population' header layout -- check the sheet structure or update "
         "src/pipeline/indicator_sheet_vpd.py's COLUMNS mapping."
     )
@@ -145,20 +183,25 @@ def load_indicator_sheet(path: Path) -> dict:
     trusted as-is, same 'trust the sheet' rule as Coverage's UC-level
     Access/Utilisation)."""
     wb = openpyxl.load_workbook(path, data_only=True)
-    year, ws = _select_year_sheet(wb)
+    year, ws, header_row = _select_year_sheet(wb)
+    # Historically: header row 2, one sub-header row (3), data from row 4 --
+    # i.e. data starts 2 rows below the header. Computed from the detected
+    # header row rather than a fixed row number, so a newer export's extra
+    # blank row shifts everything down together, not just the header.
+    data_start_row = header_row + 2
 
     def _row(r):
         return {key: ws.cell(row=r, column=col).value for key, col in COLUMNS.items()}
 
     districts = []
     provincial_total = None
-    r = DATA_START_ROW
+    r = data_start_row
     while True:
         district_name = ws.cell(row=r, column=COLUMNS["district"]).value
         if district_name is None:
             break
         row = _row(r)
-        if str(district_name).strip() == PROVINCIAL_TOTAL_LABEL:
+        if str(district_name).strip().lower() in PROVINCIAL_TOTAL_LABELS:
             provincial_total = row
             break
         districts.append(row)
@@ -166,8 +209,8 @@ def load_indicator_sheet(path: Path) -> dict:
 
     if provincial_total is None:
         raise ValueError(
-            f"No '{PROVINCIAL_TOTAL_LABEL}' row found below the district rows in the "
-            f"'{year}' sheet -- the workbook layout may have changed."
+            f"No provincial-total row (labelled 'Provincial Total' or 'Provincial') found "
+            f"below the district rows in the '{year}' sheet -- the workbook layout may have changed."
         )
     return {"year": year, "districts": districts, "provincial_total": provincial_total}
 
@@ -234,11 +277,17 @@ def build_measles_incidence_map(sheet: dict) -> dict:
     WHO-standard Low/Moderate/Disruptive-outbreak categories, keyed by this
     project's canonical district name so it shares kp_districts.geojson with
     every other choropleth map."""
+    canonical_values = set(DISTRICT_NAME_CANONICAL.values())
     features = {}
     unmapped = []
     for row in sheet["districts"]:
         raw_name = str(row["district"]).strip()
-        canonical = DISTRICT_NAME_CANONICAL.get(raw_name)
+        # A newer export (2026-10) already spells several districts this
+        # project's canonical way directly (e.g. "Bajaur", "Tor Ghar") rather
+        # than the older misspelling DISTRICT_NAME_CANONICAL's keys were
+        # built from -- fall back to treating an already-canonical spelling
+        # as itself, rather than only ever matching a known raw variant.
+        canonical = DISTRICT_NAME_CANONICAL.get(raw_name) or (raw_name if raw_name in canonical_values else None)
         if canonical is None:
             unmapped.append(raw_name)
             continue
@@ -271,7 +320,15 @@ def run_indicator_sheet(raw_dir: Path | None = None, processed_dir: Path | None 
     print("\nMeasles Indicator Sheet pipeline starting...")
     path = files[0]
     print(f"  Loading {path.name}...")
-    sheet = load_indicator_sheet(path)
+    try:
+        sheet = load_indicator_sheet(path)
+    except ValueError as e:
+        # Preserve the real, specific message (e.g. a missing header/
+        # provincial-total row) as SystemExit so the web app shows it
+        # directly to the user instead of a generic "something unexpected
+        # went wrong" -- same convention as run.py/run_vpd.py's load-failure
+        # handling, which this module had never been given.
+        raise SystemExit(f"\nFAILED loading {path.name}: {e}") from e
     summary = build_key_indicators_summary(sheet)
     print(f"    {sheet['year']} sheet: {summary['districts_covered']} districts, "
           f"{summary['total_cases_reported']} total cases reported")

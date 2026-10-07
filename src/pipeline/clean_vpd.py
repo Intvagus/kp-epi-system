@@ -204,6 +204,18 @@ def clean_msl(raw_df: pd.DataFrame, period_id: str, log):
 
 def clean_diphtheria(raw_df: pd.DataFrame, period_id: str, log):
     df = _rename_positional(raw_df, DIPHTHERIA_COLUMNS, "DIPHTHERIA LINE-LIST")
+    # A newer export (2026-10) has a trailing "Compiled by / Name / ... /
+    # Compiled Date" sign-off row after the real case rows, not a case at
+    # all -- confirmed by direct inspection. Every real case row has a
+    # numeric serial number; this artifact row has text ("Compiled by") in
+    # that position instead, the same reliable signal already used to drop
+    # the Pertussis sheet's merged-sub-header artifact row below, flagged
+    # rather than silently dropped.
+    footer_artifact = pd.to_numeric(df["sr_no"], errors="coerce").isna()
+    for idx in df.index[footer_artifact]:
+        log.flag(period_id, "diphtheria_case", f"row {idx}", "sheet_footer_row_dropped",
+                  detail="Non-case trailing row (e.g. a 'Compiled by' sign-off line), not a real case")
+    df = df.loc[~footer_artifact].reset_index(drop=True)
     df = _coerce_dates(df, [
         "onset_date", "notification_date", "investigation_date", "last_dose_date",
         "specimen_sent_date", "specimen_received_lab_date", "report_sent_district_date",
@@ -223,7 +235,23 @@ def clean_diphtheria(raw_df: pd.DataFrame, period_id: str, log):
 
 
 def clean_pertussis(raw_df: pd.DataFrame, period_id: str, log):
+    # A newer export (2026-10) adds a real "Final Classification" column at
+    # the same trailing position this project's original Pertussis files
+    # reserved for "D/report sent to District" -- the Pertussis line list
+    # previously never had any classification field at all (see CLAUDE.md),
+    # so this is new data, not a renamed existing one, and position alone can
+    # no longer disambiguate the two. Detected from the RAW header text at
+    # that position, before the positional rename below discards it --
+    # without this, a real value like "Laboratory Confirmed Pertussis" would
+    # silently become a date column and get coerced to NaT.
+    last_col_idx = len(PERTUSSIS_COLUMNS_HEAD) - 1
+    has_final_classification = (
+        len(raw_df.columns) > last_col_idx
+        and "final classification" in str(raw_df.columns[last_col_idx]).strip().lower()
+    )
     df = _rename_positional(raw_df, PERTUSSIS_COLUMNS_HEAD, "Pertusis line-list")
+    if has_final_classification:
+        df = df.rename(columns={"report_sent_district_date": "final_classification_raw"})
     # This sheet has a 2-row merged sub-header ("Condition of Specimen" ->
     # "Quantity Adequate"/"Cold Chain OK", columns 25-26) but the loader only
     # skips 1 header row (VPD_HEADER_ROW), so the sub-header text itself is
@@ -238,10 +266,11 @@ def clean_pertussis(raw_df: pd.DataFrame, period_id: str, log):
         log.flag(period_id, "pertussis_case", f"row {idx}", "sheet_subheader_row_dropped",
                   detail="Blank row matching the 'Condition of Specimen' merged sub-header, not a real case")
     df = df.loc[~header_artifact].reset_index(drop=True)
-    df = _coerce_dates(df, [
-        "onset_date", "notification_date", "investigation_date", "last_dose_date",
-        "specimen_sent_date", "specimen_received_lab_date", "report_sent_district_date",
-    ])
+    date_cols = ["onset_date", "notification_date", "investigation_date", "last_dose_date",
+                 "specimen_sent_date", "specimen_received_lab_date"]
+    if not has_final_classification:
+        date_cols.append("report_sent_district_date")
+    df = _coerce_dates(df, date_cols)
     df["period_id"] = period_id
     return df
 
