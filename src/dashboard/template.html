@@ -3457,6 +3457,28 @@
     else if (name === "quality") renderQuality();
   }
 
+  // Real bug found from a user-downloaded PDF (2026-10): bar/line charts'
+  // right edges and donut labels were getting clipped at the printed page's
+  // edge. Root cause: every Chart.js canvas is drawn at a fixed pixel
+  // resolution matching its container's on-screen width (e.g. ~1140px
+  // inside the 1200px-wide `main`), and `main` correctly reflows to the
+  // much narrower printable page width (~700px on A4/Letter) via normal CSS
+  // block layout -- but the canvas bitmap itself is never redrawn to match,
+  // since Chart.js's `responsive: true` relies on a ResizeObserver that
+  // print rendering doesn't reliably fire before the page is captured. Every
+  // chart on this dashboard already uses `responsive: true`, so the fix is
+  // to force Chart.js to redraw each one at its real container size right
+  // before printing (`beforeprint`), using Chart.js's own built-in
+  // `Chart.instances` registry so this needs no separate per-chart
+  // bookkeeping as more charts are added. `afterprint` resizes back up so
+  // charts aren't left shrunk to print size once the user returns from the
+  // print dialog.
+  function resizeAllCharts() {
+    Object.values(Chart.instances).forEach(function (chart) { chart.resize(); });
+  }
+  window.addEventListener("beforeprint", resizeAllCharts);
+  window.addEventListener("afterprint", resizeAllCharts);
+
   document.getElementById("export-pdf-btn").addEventListener("click", function () {
     window.print();
   });

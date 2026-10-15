@@ -1175,6 +1175,41 @@
   the real uploaded file, which contains real case-level health data and
   was never committed to this repo). 59 passing (154 skipped, same
   pre-existing convention), 0 new failures.
+- **Dashboard PDF export: charts clipped at the printed page's right edge,
+  found from a real downloaded PDF** (done): the user downloaded the
+  dashboard's PDF and several Chart.js bar/line charts had their right edge
+  (and, for the two donut charts, a left-side label) cut off exactly at the
+  page boundary -- e.g. "Top Districts by Suspected Case Load"'s x-axis ran
+  past "1,400" off the printable page, and "MCV Dose Status"'s rightmost bar
+  label was truncated to "26" instead of its real value. Root-caused by
+  actually rendering a real print-to-PDF (Playwright `page.pdf()` with
+  print media emulated) of the exact same VPD data and comparing against the
+  user's PDF, not guessed from reading the CSS: every chart canvas is drawn
+  by Chart.js at a fixed pixel resolution matching its container's width at
+  creation time (full on-screen width inside `main`'s 1200px max-width).
+  `main` itself correctly reflows to the much narrower printable page width
+  (~700px on A4/Letter, since there's no `@page` override) via normal CSS
+  block layout, so every card/label/legend repositions correctly -- but the
+  already-drawn canvas bitmap is never redrawn to match, because Chart.js's
+  `responsive: true` (used by every chart on this dashboard) depends on a
+  ResizeObserver that doesn't reliably fire before the browser captures the
+  print output. Fixed with the standard fix for this known Chart.js/print
+  interaction: a `beforeprint` listener that calls `.resize()` on every live
+  chart via Chart.js's own built-in `Chart.instances` registry (so it needs
+  no separate per-chart bookkeeping as more charts get added), plus an
+  `afterprint` listener doing the same so charts aren't left shrunk to print
+  size once the user returns from the print dialog. `src/dashboard/
+  template.html` only, ~15 lines next to the existing `export-pdf-btn` click
+  handler -- no Python/pipeline change, so this also fixes the PPT export
+  path's charts for free since those already pull from the same live
+  Chart.js instances via `toBase64Image()`. Verified by generating an actual
+  print-emulated PDF (not just re-reading the code) against the same VPD
+  data shape as the user's file and visually confirming every chart --
+  including the two previously-clipped ones -- now renders fully inside its
+  card on every page, plus a Playwright sweep confirming zero console errors
+  across all 6 tabs through a screen/print/screen media-emulation cycle.
+  Full pytest suite unaffected (59 passing, 154 skipped, same pre-existing
+  convention) since this is a pure front-end fix.
 
 ## Web app / hosting
 
