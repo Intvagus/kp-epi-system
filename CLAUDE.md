@@ -1312,6 +1312,40 @@
   (synthetic workbooks, not the real uploaded file, which contains real
   narrative field reports and was never committed to this repo). 67
   passing (154 skipped, same pre-existing convention), 0 new failures.
+- **Monthly Activity Reports card: infographics and tables added** (done):
+  the user saw the newly-generated dashboard and asked for the Monthly
+  Activity Reports card (above) to be easier to understand, since it was
+  just a long wall of per-officer bullet text with no visual summary.
+  Restructured `doReportsCardHtml()` into the same
+  KPI-row -> charts -> table -> detail pattern already used everywhere
+  else on this dashboard, all computed from data this module already
+  produced -- nothing new fetched or estimated:
+  - A 5-tile KPI row (Officers Tracked, Reported This Period, Not Yet
+    Reported, Total Entries Logged, Common Reporting Month).
+  - Two new charts, `wireDoReportsCharts()`: a "Reporting Status" doughnut
+    (reported vs. not-yet-reported) and an "Entries by Officer" horizontal
+    bar chart (same `indexAxis: "y"` style already used for e.g. MSL's
+    "Top districts by suspected case load"), wired identically in both
+    places `renderAdminActivities()` can render this card from (the
+    checklist-absent-reports-only branch and the combined branch), with
+    `destroyChart()` called first in both so re-rendering (e.g. on a
+    checklist dropdown change) doesn't leak old Chart.js instances.
+  - A new "Entries by Section" table: one row per officer, one column per
+    of the 5 report sections, counting real bullet entries already parsed
+    by `divisional_officer_reports.py` -- an officer with no report is
+    marked with a "not reported" badge rather than a misleading row of
+    zeros with no context.
+  - The full per-officer narrative text (previously the whole card) is now
+    the last piece, under a "Full Reports" heading, in the same
+    collapsible `<details>` blocks as before -- drill-down detail below
+    the summary, not replaced by it.
+  Verified with a Playwright sweep of both the reports-only and combined
+  checklist+reports scenarios (zero console errors in either) and a PPT
+  export check (14 slides for the combined scenario, none empty,
+  including real chart images on the new "Reporting Status" and "Entries
+  by Officer" slides). Pure front-end change (`template.html` only); full
+  pytest suite unaffected (67 passing, 154 skipped, same pre-existing
+  convention).
 
 ## Web app / hosting
 
