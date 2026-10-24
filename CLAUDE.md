@@ -1346,6 +1346,24 @@
   by Officer" slides). Pure front-end change (`template.html` only); full
   pytest suite unaffected (67 passing, 154 skipped, same pre-existing
   convention).
+- **Monthly Activity Reports: not-yet-reported officers named on the KPI
+  card** (done): the user pointed at the "Not Yet Reported" KPI tile (which
+  only showed a bare count, e.g. "1") and asked for the officer's name to
+  also appear there, not just in the detail table further down the card.
+  `doReportsCardHtml()` now computes `notReportedNames` (officers with
+  `has_any_content === false`, same field the KPI count and the "Entries by
+  Section" table's "not reported" badge already use) and passes it as the
+  KPI card's `sub` text -- comma-joined for more than one name, and simply
+  omitted (via `diseaseKpiCard`'s existing falsy-`sub` check) when every
+  officer has reported, so nothing ever shows a stray empty line. No backend
+  change needed -- the name was already in `DATA.divisional_officer_reports
+  .officers`, just not surfaced at this spot. Verified in a headless
+  browser against two synthetic scenarios (one not-reported officer, and
+  two) with zero console errors in either, confirming the KPI card renders
+  "Dr Haroon Rashid" and "Dr Imtiaz Ali, Dr Haroon Rashid" respectively.
+  Pure front-end change (`template.html` only); full pytest suite unaffected
+  (67 passing, 154 skipped, same pre-existing convention, since this touches
+  no Python).
 
 ## Web app / hosting
 

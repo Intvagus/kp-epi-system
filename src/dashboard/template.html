@@ -3319,10 +3319,12 @@
         escHtml(doReports.reporting_month_mismatches.join(", ")) + " " + plural(doReports.reporting_month_mismatches.length, "shows", "show") +
         " a different month than the rest (" + escHtml(doReports.common_reporting_month || "the common month") + ") -- shown exactly as reported, not corrected.</p>";
     }
+    var notReportedNames = doReports.officers.filter(function (o) { return !o.has_any_content; })
+      .map(function (o) { return o.name; }).join(", ");
     var kpiRow =
       diseaseKpiCard("Officers Tracked", fmtNum(doReports.officer_count), "") +
       diseaseKpiCard("Reported This Period", fmtNum(doReports.reported_count), "of " + fmtNum(doReports.officer_count) + " officers") +
-      diseaseKpiCard("Not Yet Reported", fmtNum(doReports.not_reported_count), "") +
+      diseaseKpiCard("Not Yet Reported", fmtNum(doReports.not_reported_count), escHtml(notReportedNames)) +
       diseaseKpiCard("Total Entries Logged", fmtNum(doReports.total_entries), "across all officers and sections") +
       diseaseKpiCard("Common Reporting Month", escHtml(doReports.common_reporting_month || "—"), "");
 
