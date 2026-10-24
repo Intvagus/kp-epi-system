@@ -3295,6 +3295,19 @@
       '</div></details>';
   }
 
+  function doReportsSectionCountTableHtml(doReports) {
+    var rows = doReports.officers.map(function (o) {
+      var cells = DO_REPORT_SECTIONS.map(function (s) {
+        return "<td>" + fmtNum((o.sections[s.key] || []).length) + "</td>";
+      }).join("");
+      return "<tr><td>" + escHtml(o.name) + (o.has_any_content ? "" : ' <span class="badge warning">not reported</span>') + "</td>" +
+        cells + "<td><strong>" + fmtNum(o.entry_count) + "</strong></td></tr>";
+    }).join("");
+    return '<div class="table-scroll"><table><thead><tr><th>Officer</th>' +
+      DO_REPORT_SECTIONS.map(function (s) { return "<th>" + escHtml(s.label) + "</th>"; }).join("") +
+      '<th>Total</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
   function doReportsCardHtml(doReports) {
     if (doReports.status !== "ok") {
       return '<div class="card"><h3>Monthly Activity Reports</h3><div class="placeholder-card"><div class="icon">⏳</div>' +
@@ -3306,12 +3319,58 @@
         escHtml(doReports.reporting_month_mismatches.join(", ")) + " " + plural(doReports.reporting_month_mismatches.length, "shows", "show") +
         " a different month than the rest (" + escHtml(doReports.common_reporting_month || "the common month") + ") -- shown exactly as reported, not corrected.</p>";
     }
+    var kpiRow =
+      diseaseKpiCard("Officers Tracked", fmtNum(doReports.officer_count), "") +
+      diseaseKpiCard("Reported This Period", fmtNum(doReports.reported_count), "of " + fmtNum(doReports.officer_count) + " officers") +
+      diseaseKpiCard("Not Yet Reported", fmtNum(doReports.not_reported_count), "") +
+      diseaseKpiCard("Total Entries Logged", fmtNum(doReports.total_entries), "across all officers and sections") +
+      diseaseKpiCard("Common Reporting Month", escHtml(doReports.common_reporting_month || "—"), "");
+
     var cards = doReports.officers.map(doReportOfficerCardHtml).join("");
+
     return '<div class="card"><h3>Monthly Activity Reports</h3>' +
       '<p class="section-note">Source: ' + escHtml(doReports.source_file) + ". " + fmtNum(doReports.reported_count) + " of " + fmtNum(doReports.officer_count) +
       " officers reported this period (" + fmtNum(doReports.total_entries) + " total entries across Key Highlights, Key Activities, Key Challenges, Initiatives, and Any Other Business). Shown as submitted, not edited or summarized.</p>" +
-      caveat + cards +
+      caveat +
+      '<div class="grid kpi-row">' + kpiRow + '</div>' +
+      '</div>' +
+      '<div class="grid two-col">' +
+        '<div class="card"><h3>Reporting Status</h3><div class="chart-wrap"><canvas id="chart-do-status"></canvas></div></div>' +
+        '<div class="card"><h3>Entries by Officer</h3><div class="chart-wrap tall"><canvas id="chart-do-entries"></canvas></div></div>' +
+      '</div>' +
+      '<div class="card"><h3>Entries by Section</h3>' +
+        '<p class="section-note">How many bullet entries each officer logged under each of the 5 report sections.</p>' +
+        doReportsSectionCountTableHtml(doReports) +
+      '</div>' +
+      '<div class="card"><h3>Full Reports</h3>' +
+        '<p class="section-note">Click an officer to expand or collapse their full narrative report.</p>' +
+        cards +
       '</div>';
+  }
+
+  function wireDoReportsCharts(doReports) {
+    destroyChart("doStatus");
+    destroyChart("doEntries");
+    if (!doReports || doReports.status !== "ok") return;
+
+    var statusDoughnut = doughnutData({ "Reported": doReports.reported_count, "Not yet reported": doReports.not_reported_count });
+    charts.doStatus = new Chart(document.getElementById("chart-do-status"), {
+      type: "doughnut",
+      data: { labels: statusDoughnut.labels, datasets: [{ data: statusDoughnut.values, backgroundColor: statusDoughnut.colors }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
+    });
+
+    var officers = doReports.officers;
+    charts.doEntries = new Chart(document.getElementById("chart-do-entries"), {
+      type: "bar",
+      data: {
+        labels: officers.map(function (o) { return o.name; }),
+        datasets: [{ label: "Entries", data: officers.map(function (o) { return o.entry_count; }),
+          backgroundColor: "#1a3a7a", labelText: officers.map(function (o) { return fmtNum(o.entry_count); }) }]
+      },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { x: { grace: "15%" } } }
+    });
   }
 
   function renderAdminActivities() {
@@ -3337,6 +3396,7 @@
         '</div>' +
         '<div class="section-heading"><h2>Divisional Officer Compliance</h2></div>' +
         doReportsCardHtml(doReports);
+      wireDoReportsCharts(doReports);
       return;
     }
 
@@ -3403,6 +3463,8 @@
       data: { labels: compDoughnut.labels, datasets: [{ data: compDoughnut.values, backgroundColor: compDoughnut.colors }] },
       options: { responsive: true, maintainAspectRatio: false, sliceLabelsOn: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }
     });
+
+    wireDoReportsCharts(doReports);
 
     el.querySelectorAll(".admin-status-select").forEach(function (sel) {
       sel.addEventListener("change", function (e) {
