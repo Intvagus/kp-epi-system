@@ -211,6 +211,11 @@
   }
   .district-highlight-card h4 { margin: 0 0 4px 0; font-size: 13px; color: var(--navy); }
   .district-highlight-card p { margin: 0; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+  details.do-report-officer {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; background: #fafbfe; margin-bottom: 10px;
+  }
+  details.do-report-officer summary { font-weight: 600; font-size: 13px; cursor: pointer; color: var(--navy); }
+  details.do-report-officer h4 { margin: 10px 0 4px 0; font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
   .completeness-list { display: flex; flex-direction: column; gap: 6px; }
   .completeness-row { display: grid; grid-template-columns: 190px 1fr 46px; align-items: center; gap: 8px; font-size: 12px; }
   .completeness-label { color: var(--text-dim); }
@@ -3248,12 +3253,90 @@
     return '<div class="table-scroll"><table><thead><tr><th>Task / Administrative Responsibility</th><th>Completion Status</th><th>Verified by Supervisor</th><th>Expected Evidence</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
+  // A genuinely different source from the Admin Activities Yes/No/N-A
+  // checklist above: a per-officer NARRATIVE monthly report (5 fixed
+  // sections of bullet points), from a completely separate workbook --
+  // see divisional_officer_reports.py. Folded into this same Divisional
+  // Officer Compliance section per the user's explicit choice, but kept
+  // independently gated from the checklist (DATA.admin_activities), since
+  // either file can be uploaded without the other.
+  var DO_REPORT_SECTIONS = [
+    { key: "key_highlights", label: "Key Highlights" },
+    { key: "key_activities", label: "Key Activities / Field Visits" },
+    { key: "key_challenges", label: "Key Challenges" },
+    { key: "initiatives", label: "Initiatives Taken" },
+    { key: "other_business", label: "Any Other Business" },
+  ];
+
+  function doReportOfficerCardHtml(o) {
+    var countBadge = '<span class="badge neutral">' + nounFor(o.entry_count, "entry", "entries") + '</span>';
+    var monthLabel = o.reporting_month_label ? ' <span class="sub">(' + escHtml(o.reporting_month_label) + ')</span>' : "";
+    if (!o.has_any_content) {
+      return '<details class="do-report-officer"><summary>' + escHtml(o.name) + monthLabel +
+        ' <span class="badge warning">No report submitted this period</span></summary></details>';
+    }
+    var meta = [];
+    if (o.duty_station) meta.push("<strong>Duty Station:</strong> " + escHtml(o.duty_station));
+    if (o.assigned_districts) meta.push("<strong>Assigned Districts:</strong> " + escHtml(o.assigned_districts));
+    var sectionsHtml = DO_REPORT_SECTIONS.map(function (s) {
+      var items = o.sections[s.key] || [];
+      if (!items.length) return "";
+      // Source cells already carry a literal "• " prefix (confirmed by
+      // inspection) -- stripped here before wrapping in <li>, same as
+      // whoKeyResultsHtml/whoPriorityGapsHtml do for the same reason,
+      // since <li> already renders its own bullet marker.
+      return "<h4>" + escHtml(s.label) + "</h4><ul class=\"plain-list\">" +
+        items.map(function (i) { return "<li>" + escHtml(i.replace(/^[•\s]+/, "")) + "</li>"; }).join("") + "</ul>";
+    }).join("");
+    return '<details class="do-report-officer" open><summary>' + escHtml(o.name) + monthLabel + " " + countBadge + '</summary>' +
+      '<div style="padding:6px 2px 2px 2px;">' +
+      (meta.length ? '<p class="section-note">' + meta.join(" &nbsp;&middot;&nbsp; ") + '</p>' : "") +
+      (sectionsHtml || '<p class="sub">No entries recorded under any section this period.</p>') +
+      '</div></details>';
+  }
+
+  function doReportsCardHtml(doReports) {
+    if (doReports.status !== "ok") {
+      return '<div class="card"><h3>Monthly Activity Reports</h3><div class="placeholder-card"><div class="icon">⏳</div>' +
+        escHtml(doReports.message || "No Divisional Officers' monthly report has been uploaded yet.") + '</div></div>';
+    }
+    var caveat = "";
+    if (doReports.reporting_month_mismatches && doReports.reporting_month_mismatches.length) {
+      caveat = '<p class="section-note" style="color:var(--poor);">Reporting-month mismatch in the source file: ' +
+        escHtml(doReports.reporting_month_mismatches.join(", ")) + " " + plural(doReports.reporting_month_mismatches.length, "shows", "show") +
+        " a different month than the rest (" + escHtml(doReports.common_reporting_month || "the common month") + ") -- shown exactly as reported, not corrected.</p>";
+    }
+    var cards = doReports.officers.map(doReportOfficerCardHtml).join("");
+    return '<div class="card"><h3>Monthly Activity Reports</h3>' +
+      '<p class="section-note">Source: ' + escHtml(doReports.source_file) + ". " + fmtNum(doReports.reported_count) + " of " + fmtNum(doReports.officer_count) +
+      " officers reported this period (" + fmtNum(doReports.total_entries) + " total entries across Key Highlights, Key Activities, Key Challenges, Initiatives, and Any Other Business). Shown as submitted, not edited or summarized.</p>" +
+      caveat + cards +
+      '</div>';
+  }
+
   function renderAdminActivities() {
     var el = document.getElementById("tab-admin");
     var a = DATA.admin_activities;
-    if (a.status !== "ok") {
+    var doReports = DATA.divisional_officer_reports;
+    var hasChecklist = a.status === "ok";
+    var hasReports = doReports.status === "ok";
+
+    if (!hasChecklist && !hasReports) {
       el.innerHTML = '<div class="card"><h2>Divisional Officer &amp; Admin Compliance</h2><div class="placeholder-card"><div class="icon">⏳</div>' +
         escHtml(a.message || "No Divisional Officer & Admin Compliance checklist has been uploaded yet.") + '</div></div>';
+      return;
+    }
+
+    if (!hasChecklist) {
+      // Checklist absent, but a monthly narrative report was uploaded on its
+      // own -- same per-domain independence rule as every other tab on this
+      // dashboard (e.g. Coverage absent but Monitoring present).
+      el.innerHTML =
+        '<div class="card"><h2>🗂️ Divisional Officer &amp; Admin Compliance</h2>' +
+          '<p class="section-note">No Admin Activities checklist has been uploaded this period -- showing the monthly narrative report below instead.</p>' +
+        '</div>' +
+        '<div class="section-heading"><h2>Divisional Officer Compliance</h2></div>' +
+        doReportsCardHtml(doReports);
       return;
     }
 
@@ -3279,7 +3362,8 @@
       '<div class="card"><h3>Task Checklist</h3>' +
         '<p class="section-note">Select Yes / No / N/A for each officer against each administrative responsibility.</p>' +
         adminSectionTableHtml(a, ADMIN_SECTION_DIVISIONAL, divSummary) +
-      '</div>';
+      '</div>' +
+      doReportsCardHtml(doReports);
 
     var adminHtml =
       '<div class="section-heading"><h2>Admin Compliance</h2></div>' +

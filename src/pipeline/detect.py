@@ -20,6 +20,7 @@ import pandas as pd
 
 from .admin_activities import ADMIN_ACTIVITIES_SHEET, TASK_COLUMN_HEADER as ADMIN_ACTIVITIES_HEADER
 from .config import COMBINED_DISTRICT_TEHSIL_SHEET, SHEET_NAMES, VPD_SHEET_NAMES
+from .divisional_officer_reports import STATUS_SHEET as DO_REPORTS_STATUS_SHEET, STATUS_TITLE_MARKER as DO_REPORTS_TITLE_MARKER
 from .indicator_sheet_vpd import INDICATOR_SHEET_TITLE_MARKER
 from .sheet_utils import resolve_sheet_name
 from .who_activities import REQUIRED_SHEETS as WHO_ACTIVITIES_SIGNATURE
@@ -44,7 +45,7 @@ MIN_MATCHING_SHEETS = 2
 
 @dataclass
 class DetectionResult:
-    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "who_activities" | "admin_activities" | "unknown" | "empty" | "unreadable"
+    workbook_type: str  # "coverage" | "vpd" | "indicator_sheet" | "who_activities" | "admin_activities" | "divisional_officer_reports" | "unknown" | "empty" | "unreadable"
     matched_sheets: list = field(default_factory=list)
     all_sheets: list = field(default_factory=list)
     message: str = ""
@@ -89,6 +90,24 @@ def _is_admin_activities_workbook(path: Path) -> bool:
     return bool(header) and str(header).strip() == ADMIN_ACTIVITIES_HEADER
 
 
+def _is_divisional_officer_reports_workbook(path: Path) -> bool:
+    """The Divisional Officers' Consolidated Monthly Summary workbook (one
+    narrative report sheet per officer, "DO-1".."DO-N") is a different shape
+    again from both the generic Coverage/VPD signatures and the Admin
+    Activities checklist, even though all three can involve the same real
+    officer names -- detected by its own "Status" sheet's A1 title marker,
+    same "content, never filename" principle as every other domain."""
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return False
+    status_name = resolve_sheet_name(wb.sheetnames, DO_REPORTS_STATUS_SHEET)
+    if status_name is None:
+        return False
+    title = wb[status_name].cell(row=1, column=1).value
+    return bool(title) and DO_REPORTS_TITLE_MARKER in str(title).strip().lower()
+
+
 def detect_workbook_type(path: Path) -> DetectionResult:
     """Classify one .xlsx by its actual sheet names (Coverage/VPD) or, for
     the differently-shaped Indicator Sheet/Admin Activities workbooks, a
@@ -120,6 +139,12 @@ def detect_workbook_type(path: Path) -> DetectionResult:
         return DetectionResult(
             "admin_activities", [], sheets,
             f"Recognized as an Admin Activities checklist workbook (sheet name and header marker found)."
+        )
+
+    if not coverage_matches and not vpd_matches and _is_divisional_officer_reports_workbook(path):
+        return DetectionResult(
+            "divisional_officer_reports", [], sheets,
+            f"Recognized as a Divisional Officers' monthly narrative report workbook (Status sheet title marker found)."
         )
 
     if not coverage_matches and not vpd_matches and _is_indicator_sheet_workbook(path):

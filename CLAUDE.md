@@ -1210,6 +1210,108 @@
   across all 6 tabs through a screen/print/screen media-emulation cycle.
   Full pytest suite unaffected (59 passing, 154 skipped, same pre-existing
   convention) since this is a pure front-end fix.
+- **Part 1f (Divisional Officers' Monthly Narrative Reports) -- a genuinely
+  new domain, built and folded into the existing tab, done**: the user
+  uploaded "Divisional_Officers_Summary_Report_September_2026.xlsx" and
+  nothing generated. Investigated by opening the real file directly
+  (openpyxl), not guessed at: 10 sheets (`Summary`, `Status`, `DO-1`
+  .. `DO-7`, `Engine`) -- a workbook shape the system had never seen,
+  matching none of the 7 existing detection signatures. Confirmed by direct
+  inspection, nothing assumed:
+  - A `Status` sheet (A1: "Divisional Officers' Reports - Status & How to
+    Use") documents the workbook's own structure and a small roster table
+    -- several of ITS OWN cells (Duty Stations/Assigned Districts/Reports
+    Received/Summary rows used) are literal Excel `#N/A` error values in
+    the file as received (broken/uncalculated formulas), a real issue in
+    the source file.
+  - One `DO-N` sheet per officer (name in A1, Reporting Month in C1, Duty
+    Station in C2, Assigned Districts in C3), each with 5 fixed NARRATIVE
+    section headings in column B (Key Highlights / Key Activities-Field
+    Visits / Key Challenges / Initiatives Taken / Any Other Business),
+    bullet entries below each in column C -- completely different from the
+    existing Admin Activities Yes/No/N-A compliance checklist, even though
+    5 of the 7 officer names match it (Dr Imran Khan, Dr Imtiaz Ali, Dr
+    Sohrab Ali, Dr Asad Baig, Dr Kazi Taimoor, Dr Haroon Rashid) -- a real
+    7th officer not in the project's existing list, "Dr Mansoor"
+    (Malakand), was also found.
+  - A `Summary` sheet auto-aggregates every officer's entries via Excel
+    formulas; an `Engine` sheet (1,759 rows) backs those formulas. Neither
+    is read by this module -- both are live formula views of the `DO-N`
+    sheets, which are read directly and independently instead, for the
+    same reason the `Status` sheet's own `#N/A` cells are never trusted.
+  - A real data-quality issue found in the sample received: "Dr Mansoor"'s
+    Reporting Month read "September 2024" while every other officer's read
+    "September 2026" (a likely source-side typo) -- surfaced as
+    `reporting_month_mismatches`, not silently normalized.
+  Per the user's explicit choice (`AskUserQuestion`, after presenting the
+  diagnosis and asking build-new-tab vs. fold-into-existing vs. more
+  questions first), this is folded into the dashboard's EXISTING
+  "Divisional Officer Compliance" section (inside "Divisional Officer &
+  Admin Compliance") as a new "Monthly Activity Reports" card, not a new
+  top-level tab.
+  `src/pipeline/divisional_officer_reports.py` (new): detected by a
+  content marker on the `Status` sheet's A1 title (same "content, never
+  filename" principle as every other domain -- `detect.py`'s new
+  `_is_divisional_officer_reports_workbook`), independent of and checked
+  before the Admin Activities / Indicator Sheet checks it could otherwise
+  collide with. Section headings are matched by a short, recognizable
+  substring of the real (long, instructional) column-B text, not an exact
+  match, since the real headings carry parenthetical examples that could
+  drift slightly month to month; a heading row that matches none of the 5
+  known markers ends the current section (verified with a dedicated test)
+  rather than silently keeping bullets attributed to the previous one, and
+  is surfaced in `unmatched_headings`. An officer sheet with a name but no
+  duty station/districts/bullets (the real "Dr Haroon Rashid"/DO-7 case) is
+  reported honestly as not-yet-reported, never dropped or given fabricated
+  content.
+  **Architectural fix bundled in, found while testing this end-to-end**:
+  `src/dashboard/build.py::build()`'s "nothing to generate" gate only
+  checked for the 6 pre-existing domains' processed files -- a
+  Divisional-Officer-Reports-only upload (exactly the user's real scenario)
+  would have hit that same wall again even after the pipeline+detection fix
+  above, the identical bug class as every "X-only upload produces nothing"
+  round in this project's history. Added as a 7th check.
+  `template.html::renderAdminActivities()` restructured so the Admin
+  Activities checklist (`DATA.admin_activities`) and the new monthly
+  reports (`DATA.divisional_officer_reports`) are independently gated --
+  same per-domain independence rule as everywhere else in this project: a
+  reports-only upload shows "no checklist uploaded" in place of the
+  checklist sections but still renders the reports card; a checklist-only
+  upload (the pre-existing behaviour) is unchanged; both together render
+  side by side in the same section. Each officer is a collapsible
+  `<details open>` block (kept open by default so PPT export, which reads
+  live DOM text, captures full content); an officer who hasn't reported
+  shows a plain "No report submitted this period" badge instead of an
+  empty expandable block.
+  **A real display bug found and fixed while verifying visually, not just
+  reading the code**: source bullet cells already carry a literal "• "
+  text prefix, which combined with the browser's own `<li>` bullet marker
+  produced a double-bullet look -- fixed by stripping `^[•\s]+` at render
+  time only (`template.html`), same convention `whoKeyResultsHtml`/
+  `whoPriorityGapsHtml` already use for WHO Activities' narrative bullets,
+  confirmed via a before/after screenshot comparison. The backend JSON
+  keeps the raw, unstripped text (pinned by its own test), matching this
+  project's "never alter source text in the pipeline, only at display"
+  rule.
+  Verified end-to-end against the real uploaded file throughout, not just
+  read-and-assumed: `load_divisional_officer_reports()` run directly
+  against the real file (7 officers, 6 reported, 152 total entries --
+  cross-checked exactly against the Status sheet's own per-officer entry
+  counts), a full dashboard build + Playwright sweep for both the
+  reports-only scenario (zero console errors, correct "no checklist"
+  placeholder alongside a fully-rendered reports card) and a combined
+  checklist+reports scenario (zero console errors, correct section
+  ordering, a live checklist dropdown interaction still works), a PPT
+  export of the combined tab (10 slides, none empty, including a
+  "Monthly Activity Reports" slide with real narrative text), and a real
+  Flask `/generate` POST through the actual test client reproducing the
+  user's exact original upload -- results page shows a clean green
+  "Divisional Officers' Monthly Report" badge (not "not recognized") and a
+  working dashboard link, where before nothing was generated at all. 8 new
+  unconditional tests in `tests/test_divisional_officer_reports.py`
+  (synthetic workbooks, not the real uploaded file, which contains real
+  narrative field reports and was never committed to this repo). 67
+  passing (154 skipped, same pre-existing convention), 0 new failures.
 
 ## Web app / hosting
 
