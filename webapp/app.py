@@ -35,6 +35,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.bulletin.build import build as build_bulletin
 from src.dashboard.build import build as build_dashboard
 from src.pipeline.admin_activities import run_admin_activities
+from src.pipeline.divisional_officer_reports import run_divisional_officer_reports
 from src.pipeline.detect import detect_monitoring_file, detect_workbook_type
 from src.pipeline.export_excel import build_processed_excel
 from src.pipeline.indicator_sheet_vpd import run_indicator_sheet
@@ -179,7 +180,7 @@ def generate():
     # file is routed to whatever pipeline it belongs to; a file that can't be
     # confidently identified is reported clearly rather than silently
     # dropped or guessed at, and never blocks the files that WERE recognized.
-    coverage_saved, vpd_saved, rca_saved, supervisory_saved, indicator_sheet_saved, who_activities_saved, admin_activities_saved = [], [], [], [], [], [], []
+    coverage_saved, vpd_saved, rca_saved, supervisory_saved, indicator_sheet_saved, who_activities_saved, admin_activities_saved, do_reports_saved = [], [], [], [], [], [], [], []
     for name in saved:
         path = paths["raw"] / name
         result = detect_monitoring_file(path) if name.lower().endswith(".xls") else detect_workbook_type(path)
@@ -198,6 +199,8 @@ def generate():
             who_activities_saved.append(name)
         elif result.workbook_type == "admin_activities":
             admin_activities_saved.append(name)
+        elif result.workbook_type == "divisional_officer_reports":
+            do_reports_saved.append(name)
         else:
             manifest["errors"].append(f"Couldn't recognize “{name}”: {result.message}")
 
@@ -276,6 +279,14 @@ def generate():
             manifest["errors"].append(f"Problem with your Admin Activities Checklist file: {e}")
         except Exception:
             manifest["errors"].append(_log_unexpected_error(job_id, "Admin Activities Checklist"))
+
+    if do_reports_saved:
+        try:
+            run_divisional_officer_reports(raw_dir=paths["raw"], processed_dir=paths["processed"])
+        except SystemExit as e:
+            manifest["errors"].append(f"Problem with your Divisional Officers' monthly report file: {e}")
+        except Exception:
+            manifest["errors"].append(_log_unexpected_error(job_id, "Divisional Officers' monthly report"))
 
     # Always attempted, regardless of which pipelines ran or failed above --
     # build_dashboard degrades each tab independently (an "awaiting data"

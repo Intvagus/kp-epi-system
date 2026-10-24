@@ -196,6 +196,16 @@ def build_payload(processed_dir: Path) -> dict:
             "message": "No Admin Activities checklist has been uploaded yet.",
         }
 
+    do_reports_path = processed_dir / "divisional_officer_reports_summary.json"
+    if do_reports_path.exists():
+        with open(do_reports_path, encoding="utf-8") as f:
+            divisional_officer_reports = json.load(f)
+    else:
+        divisional_officer_reports = {
+            "status": "awaiting_data",
+            "message": "No Divisional Officers' monthly report has been uploaded yet.",
+        }
+
     return {
         "config": {
             "coverage_good": COVERAGE_GOOD,
@@ -224,6 +234,7 @@ def build_payload(processed_dir: Path) -> dict:
         "monitoring": monitoring,
         "who_activities": who_activities,
         "admin_activities": admin_activities,
+        "divisional_officer_reports": divisional_officer_reports,
     }
 
 
@@ -243,11 +254,14 @@ def build(processed_dir: Path | None = None, output_path: Path | None = None):
     has_indicator_sheet = (processed_dir / "vpd_indicator_summary.json").exists()
     has_who_activities = (processed_dir / "who_activities_summary.json").exists()
     has_admin_activities = (processed_dir / "admin_activities_summary.json").exists()
-    if not has_coverage and not has_vpd and not has_monitoring and not has_indicator_sheet and not has_who_activities and not has_admin_activities:
+    has_do_reports = (processed_dir / "divisional_officer_reports_summary.json").exists()
+    if not any([has_coverage, has_vpd, has_monitoring, has_indicator_sheet,
+                has_who_activities, has_admin_activities, has_do_reports]):
         raise SystemExit(
             f"No processed data found in {processed_dir}. Run the coverage, VPD, monitoring, "
-            f"indicator-sheet, WHO Supported Activities, and/or Admin Activities pipeline first "
-            f"to generate at least one dataset before building the dashboard."
+            f"indicator-sheet, WHO Supported Activities, Admin Activities, and/or Divisional "
+            f"Officer monthly report pipeline first to generate at least one dataset before "
+            f"building the dashboard."
         )
 
     payload = build_payload(processed_dir)
